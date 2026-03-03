@@ -272,13 +272,14 @@ def fmt_year_month_jp(dt):
 
 def main():
     if len(sys.argv) < 3:
-        print("使い方: python3 generate_report.py <銘柄コード> <評価基準日>")
-        print("例:     python3 generate_report.py 3070 2025-06-13")
+        print("使い方: python3 generate_report.py <銘柄コード> <評価基準日> [1株あたり公正価値]")
+        print("例:     python3 generate_report.py 3070 2025-06-13 51.04")
         sys.exit(1)
 
     ticker_code = sys.argv[1]
     eval_date = sys.argv[2]
     eval_dt = datetime.strptime(eval_date, "%Y-%m-%d")
+    fair_value_per_share = float(sys.argv[3]) if len(sys.argv) >= 4 else None
 
     print(f"銘柄コード: {ticker_code}")
     print(f"評価基準日: {eval_date}")
@@ -327,6 +328,7 @@ def main():
         "決議日：",
         "新株予約権の総個数：",
         "行使による発行株式総数：",
+        f"1株あたりの公正価値：{f'{fair_value_per_share}円' if fair_value_per_share is not None else ''}",
         "算定に関する特約事項：",
     ]
 
@@ -394,6 +396,20 @@ def main():
         # 決算日 (テンプレート: "1月末")
         ("1月末", profile['settlement'].replace("日", "")),
     ]
+
+    # ── 1株あたり公正価値 → 株価比率計算 ──
+    if fair_value_per_share is not None:
+        stock_price = data['stock_price']
+        # 株価比率 = 公正価値 / 株価 × 100 (小数第2位で切り上げ)
+        import math
+        price_ratio_raw = fair_value_per_share / stock_price * 100
+        price_ratio = math.ceil(price_ratio_raw * 100) / 100  # 小数第2位切り上げ
+        print(f"\n  1株あたり公正価値: {fair_value_per_share}円")
+        print(f"  株価比率: {fair_value_per_share} / {stock_price} × 100 = {price_ratio_raw:.4f}% → 切上げ {price_ratio:.2f}%")
+
+        # テンプレート: 「51.04円/株　当初株価の23.20%」を置換
+        replacements.append(("51.04円/株", f"{fair_value_per_share}円/株"))
+        replacements.append(("23.20%", f"{price_ratio:.2f}%"))
 
     print("\n置換実行中...")
     for old, new in replacements:
