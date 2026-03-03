@@ -216,10 +216,8 @@ class handler(BaseHTTPRequestHandler):
             issuable_shares = body.get("issuable_shares", "")
             fair_value_str = body.get("fair_value_per_share", "")
             special_terms = body.get("special_terms", "")
-            risk_free_rate = body.get("risk_free_rate", "")
             market_risk_premium = body.get("market_risk_premium", "")
             beta_val = body.get("beta", "")
-            credit_cost = body.get("credit_cost", "")
             bond_name = body.get("bond_name", "")
             bond_maturity = body.get("bond_maturity", "")
 
@@ -256,27 +254,11 @@ class handler(BaseHTTPRequestHandler):
                 ("1月末", profile['settlement'].replace("日", "")),
             ]
 
-            # CAPM計算式（個別値より先に置換）
-            if all([risk_free_rate, market_risk_premium, beta_val, credit_cost]):
-                rfr = float(risk_free_rate)
-                mrp = float(market_risk_premium)
-                b = float(beta_val)
-                cc = float(credit_cost)
-                capm_total = rfr + mrp * b + cc
-                replacements.append(
-                    ("1.591% + 9.3%× 0.567 + 21.83%",
-                     f"{risk_free_rate}% + {market_risk_premium}%× {beta_val} + {credit_cost}%"))
-                replacements.append(("28.69%", f"{capm_total:.2f}%"))
-
             # CAPM各変数（テーブル内の個別セル）
-            if risk_free_rate:
-                replacements.append(("1.591%", f"{risk_free_rate}%"))
             if market_risk_premium:
                 replacements.append(("9.3%", f"{market_risk_premium}%"))
             if beta_val:
                 replacements.append(("0.567", beta_val))
-            if credit_cost:
-                replacements.append(("21.83%", f"{credit_cost}%"))
 
             # 国債情報
             if bond_maturity:

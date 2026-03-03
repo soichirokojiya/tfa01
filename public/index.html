@@ -178,23 +178,12 @@
 
     <div class="row">
       <div>
-        <label for="riskFreeRate">リスクフリーレート（%）</label>
-        <input type="text" id="riskFreeRate">
-      </div>
-      <div>
         <label for="marketRiskPremium">市場リスクプレミアム（%）</label>
         <input type="text" id="marketRiskPremium">
       </div>
-    </div>
-
-    <div class="row">
       <div>
         <label for="beta">対指数β</label>
         <input type="text" id="beta">
-      </div>
-      <div>
-        <label for="creditCost">クレジット・コスト（%）</label>
-        <input type="text" id="creditCost">
       </div>
     </div>
 
@@ -290,10 +279,8 @@
         issuable_shares: document.getElementById('issuableShares').value.trim(),
         fair_value_per_share: document.getElementById('fairValue').value.trim(),
         special_terms: document.getElementById('specialTerms').value.trim(),
-        risk_free_rate: document.getElementById('riskFreeRate').value.trim(),
         market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
         beta: document.getElementById('beta').value.trim(),
-        credit_cost: document.getElementById('creditCost').value.trim(),
         bond_name: document.getElementById('bondName').value.trim(),
         bond_maturity: document.getElementById('bondMaturity').value,
       };
