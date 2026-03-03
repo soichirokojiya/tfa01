@@ -23,6 +23,11 @@ def generate_volatility_excel(input_bytes: bytes) -> bytes:
     data_rows = []
     for row in ws_in.iter_rows(min_row=2, values_only=True):
         if row[0] is not None and row[1] is not None:
+            # 数値データ行のみ取り込む（SPEEDAのヘッダー行をスキップ）
+            try:
+                float(row[1])
+            except (ValueError, TypeError):
+                continue
             data_rows.append((row[0], row[1]))
 
     if len(data_rows) < 3:

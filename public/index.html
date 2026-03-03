@@ -224,6 +224,10 @@
       <button class="btn-dl" onclick="generateBondExcel()" id="bondBtn">国債ハイライトExcel生成</button>
     </div>
 
+    <label for="betaValue">対指数β</label>
+    <p class="hint">SPEEDAのβ値を入力</p>
+    <input type="text" id="betaValue" placeholder="例: 0.567">
+
     <label for="betaImage">β値スクリーンショット</label>
     <p class="hint">SPEEDAのβ値画面のスクリーンショット</p>
     <input type="file" id="betaImage" accept="image/*">
@@ -326,39 +330,60 @@
         const ws = wb.Sheets[wsName];
         const range = XLSX.utils.decode_range(ws['!ref']);
 
-        // 出来高データを収集（数値列を自動検出）
-        // SPEEDAフォーマット: ヘッダー行あり、出来高は通常最後の数値列
-        const volumes = [];
+        // SPEEDAフォーマット: 複数ヘッダー行あり（企業名、項目、単位、日付ラベル等）
+        // 全行を走査して出来高列と日付列を特定
         let volCol = -1;
         let dateCol = 0;
-        // ヘッダー行から出来高列を特定
-        for (let c = range.s.c; c <= range.e.c; c++) {
-          const cell = ws[XLSX.utils.encode_cell({r: range.s.r, c})];
-          if (cell) {
+        let dataStartRow = -1;
+        // 全ヘッダー行から出来高・日付列を探す
+        for (let r = range.s.r; r <= Math.min(range.s.r + 10, range.e.r); r++) {
+          for (let c = range.s.c; c <= range.e.c; c++) {
+            const cell = ws[XLSX.utils.encode_cell({r, c})];
+            if (!cell) continue;
             const val = String(cell.v || '').trim();
             if (val.includes('出来高') || val.includes('売買高') || val.includes('Volume')) {
               volCol = c;
             }
-            if (val.includes('日付') || val.includes('Date')) {
+            if (val === '日付' || val === 'Date') {
               dateCol = c;
+            }
+          }
+        }
+        // データ開始行を特定（A列が日付型の最初の行）
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          const cell = ws[XLSX.utils.encode_cell({r, c: dateCol})];
+          if (cell && typeof cell.v === 'number' && cell.v > 30000) { // Excelシリアル日付
+            dataStartRow = r;
+            break;
+          }
+        }
+        if (dataStartRow === -1) {
+          // 日付列がシリアル値でない場合、出来高列が数値の最初の行を探す
+          for (let r = range.s.r; r <= range.e.r; r++) {
+            const vc = volCol >= 0 ? volCol : range.e.c;
+            const cell = ws[XLSX.utils.encode_cell({r, c: vc})];
+            if (cell && typeof cell.v === 'number') {
+              dataStartRow = r;
+              break;
             }
           }
         }
         // 出来高列が見つからなければ最後の数値列を使う
         if (volCol === -1) {
           for (let c = range.e.c; c >= range.s.c; c--) {
-            const cell = ws[XLSX.utils.encode_cell({r: range.s.r + 1, c})];
+            const cell = ws[XLSX.utils.encode_cell({r: dataStartRow, c})];
             if (cell && typeof cell.v === 'number') {
               volCol = c;
               break;
             }
           }
         }
-        if (volCol === -1) throw new Error('出来高データ列が見つかりません');
+        if (volCol === -1 || dataStartRow === -1) throw new Error('出来高データ列が見つかりません');
 
         // 日付範囲と出来高値を収集
+        const volumes = [];
         let minDate = null, maxDate = null;
-        for (let r = range.s.r + 1; r <= range.e.r; r++) {
+        for (let r = dataStartRow; r <= range.e.r; r++) {
           const vCell = ws[XLSX.utils.encode_cell({r, c: volCol})];
           if (vCell && typeof vCell.v === 'number' && vCell.v > 0) {
             volumes.push(vCell.v);
@@ -394,7 +419,6 @@
           s: { r: range.s.r, c: range.s.c },
           e: { r: range.e.r + 2, c: range.e.c }
         };
-        // 下から上にシフトして上書き防止
         for (let r = range.e.r; r >= range.s.r; r--) {
           for (let c = range.s.c; c <= range.e.c; c++) {
             const oldAddr = XLSX.utils.encode_cell({r, c});
@@ -410,9 +434,7 @@
         ws['A1'] = {
           v: '日次売買高の中央値',
           t: 's',
-          s: {
-            font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' },
-          }
+          s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } }
         };
         // B1: 中央値（目立つ表示）
         ws['B1'] = {
@@ -438,10 +460,8 @@
         };
 
         // 元データの下にMEDIAN数式行も追加
-        const dataLastRow = range.e.r + 2; // シフト後の最終行
+        const dataLastRow = range.e.r + 2;
         const medianRow = dataLastRow + 2;
-        const volColLetter = XLSX.utils.encode_col(volCol);
-        const dataStartRow = range.s.r + 1 + 2 + 1; // ヘッダー+1, +2シフト, 1-indexed
         ws[XLSX.utils.encode_cell({r: medianRow, c: 0})] = { v: '中央値', t: 's', s: { font: { bold: true } } };
         ws[XLSX.utils.encode_cell({r: medianRow, c: volCol})] = {
           v: Math.round(median),
@@ -604,6 +624,15 @@
       }
     }
 
+    // ── ファイルダウンロードヘルパー ──
+    function downloadBlob(blob, filename) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
     // ── 報告書生成 ──
     async function generate() {
       const ticker = document.getElementById('ticker').value.trim();
@@ -631,6 +660,7 @@
         fair_value_per_share: document.getElementById('fairValue').value.trim(),
         special_terms: document.getElementById('specialTerms').value.trim(),
         market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
+        beta_value: document.getElementById('betaValue').value.trim(),
         bond_name: bondInfo ? bondInfo.name : '',
         bond_maturity: bondInfo ? bondInfo.maturity : '',
         bond_yield: bondInfo ? bondInfo.yield_value : '',
@@ -641,6 +671,7 @@
       status.innerHTML = '<span class="spinner"></span>データ取得・報告書生成中...（30秒ほどかかります）';
 
       try {
+        // 報告書生成
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -658,12 +689,44 @@
         let filename = '報告書_' + ticker + '.docx';
         const match = disposition.match(/filename\*=UTF-8''(.+)/);
         if (match) filename = decodeURIComponent(match[1]);
+        downloadBlob(blob, filename);
 
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(a.href);
+        // アップロード済みExcelファイルも同時にダウンロード
+        const downloads = [];
+
+        // ボラティリティ計算Excel
+        const monthlyInput = document.getElementById('monthlyFile');
+        if (monthlyInput.files.length > 0) {
+          downloads.push((async () => {
+            try {
+              const formData = new FormData();
+              formData.append('file', monthlyInput.files[0]);
+              const vRes = await fetch('/api/volatility', { method: 'POST', body: formData });
+              if (vRes.ok) {
+                const vBlob = await vRes.blob();
+                downloadBlob(vBlob, 'ボラティリティ計算.xlsx');
+              }
+            } catch (e) { console.error('Volatility Excel error:', e); }
+          })());
+        }
+
+        // 出来高中央値Excel
+        const dailyInput = document.getElementById('dailyFile');
+        if (dailyInput.files.length > 0) {
+          downloads.push((async () => {
+            try { await generateVolumeExcel(); } catch (e) { console.error('Volume Excel error:', e); }
+          })());
+        }
+
+        // 国債ハイライトExcel
+        const bondInput = document.getElementById('bondFile');
+        if (bondInput.files.length > 0 && exerciseEnd) {
+          downloads.push((async () => {
+            try { await generateBondExcel(); } catch (e) { console.error('Bond Excel error:', e); }
+          })());
+        }
+
+        await Promise.all(downloads);
 
         status.className = 'status success';
         status.textContent = filename + ' をダウンロードしました。';
