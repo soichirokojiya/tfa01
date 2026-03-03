@@ -4,6 +4,11 @@ POST /api/volatility
 
 SPEEDAエクスポートの月次株価Excelを受け取り、
 元データを残したまま新規タブに計算過程付きのボラティリティ計算シートを追加して返す。
+
+計算方法:
+  C列: 対数株価 = LN(株価)
+  D列: 対数収益率 = 当月の対数株価 - 前月の対数株価
+  データは降順（新しい順）で表示
 """
 
 import io
@@ -33,7 +38,7 @@ def generate_volatility_excel(input_bytes: bytes) -> bytes:
     if len(data_rows) < 3:
         raise ValueError("月次株価データが不足しています（最低3ヶ月分必要）")
 
-    # 日付昇順ソート
+    # 日付降順ソート（新しい順）
     def sort_key(item):
         d = item[0]
         if isinstance(d, datetime):
@@ -48,7 +53,7 @@ def generate_volatility_excel(input_bytes: bytes) -> bytes:
             except Exception:
                 pass
         return datetime.min
-    data_rows.sort(key=sort_key)
+    data_rows.sort(key=sort_key, reverse=True)
 
     n = len(data_rows)
 
@@ -71,83 +76,99 @@ def generate_volatility_excel(input_bytes: bytes) -> bytes:
     )
 
     # タイトル
-    ws.merge_cells("A1:D1")
-    ws["A1"] = "ボラティリティ算出シート"
+    ws.merge_cells("A1:E1")
+    ws["A1"] = "ボラティリティの計算過程"
     ws["A1"].font = title_font
 
-    ws["A2"] = "※すべてのセルにExcel数式が入っており、計算過程を確認できます"
-    ws["A2"].font = Font(name="ＭＳ Ｐゴシック", size=9, color="666666")
-
-    # ヘッダー (行4)
+    # ヘッダー (行3)
     headers = [
-        ("A", "No."),
-        ("B", "年月"),
-        ("C", "月次終値"),
-        ("D", "対数収益率 ln(Pt/Pt-1)"),
+        ("A", "対象月"),
+        ("B", "株価"),
+        ("C", "対数株価"),
+        ("D", "対数収益率"),
     ]
     for col_letter, label in headers:
-        cell = ws[f"{col_letter}4"]
+        cell = ws[f"{col_letter}3"]
         cell.value = label
         cell.font = header_font
         cell.fill = header_fill
         cell.border = thin_border
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
-    ws.column_dimensions["A"].width = 6
-    ws.column_dimensions["B"].width = 14
-    ws.column_dimensions["C"].width = 14
-    ws.column_dimensions["D"].width = 28
+    # E列ヘッダー: 月次対数収益率の平均
+    ws["E3"] = "月次対数収益率の平均"
+    ws["E3"].font = header_font
+    ws["E3"].fill = header_fill
+    ws["E3"].border = thin_border
+    ws["E3"].alignment = Alignment(horizontal="center", wrap_text=True)
 
-    # データ行 (行5～) ← 昇順ソート済み
-    data_start_row = 5
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 10
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+    ws.column_dimensions["E"].width = 20
+
+    # データ行 (行4～) ← 降順（新しい順）
+    data_start_row = 4
     for i, (date_val, price_val) in enumerate(data_rows):
         row_num = data_start_row + i
 
+        # 対象月
         cell_a = ws[f"A{row_num}"]
-        cell_a.value = i + 1
+        cell_a.value = date_val
         cell_a.font = data_font
         cell_a.border = thin_border
-        cell_a.alignment = Alignment(horizontal="center")
+        if isinstance(date_val, str):
+            cell_a.alignment = Alignment(horizontal="center")
+        else:
+            cell_a.number_format = "YYYY/M/D"
+            cell_a.alignment = Alignment(horizontal="center")
 
+        # 株価
         cell_b = ws[f"B{row_num}"]
-        cell_b.value = date_val
+        cell_b.value = price_val
         cell_b.font = data_font
         cell_b.border = thin_border
-        if isinstance(date_val, str):
-            cell_b.alignment = Alignment(horizontal="center")
-        else:
-            cell_b.number_format = "YYYY/MM"
-            cell_b.alignment = Alignment(horizontal="center")
+        cell_b.number_format = "#,##0.00"
 
+        # 対数株価 = LN(株価)
         cell_c = ws[f"C{row_num}"]
-        cell_c.value = price_val
-        cell_c.font = data_font
+        cell_c.value = f"=LN(B{row_num})"
+        cell_c.font = formula_font
         cell_c.border = thin_border
-        cell_c.number_format = "#,##0"
+        cell_c.number_format = "0.0000000"
 
+        # 対数収益率 = C[row] - C[row+1]（降順なので、当月 - 前月）
         cell_d = ws[f"D{row_num}"]
-        if i == 0:
-            cell_d.value = "―"
+        if i == n - 1:
+            # 最古の行は前月がないので空白
+            cell_d.value = ""
             cell_d.font = data_font
-            cell_d.alignment = Alignment(horizontal="center")
         else:
-            cell_d.value = f"=LN(C{row_num}/C{row_num - 1})"
+            cell_d.value = f"=C{row_num}-C{row_num + 1}"
             cell_d.font = formula_font
-            cell_d.number_format = "0.000000"
+            cell_d.number_format = "0.000%"
         cell_d.border = thin_border
 
     data_end_row = data_start_row + n - 1
-    return_start_row = data_start_row + 1
-    return_range = f"D{return_start_row}:D{data_end_row}"
+    # 対数収益率の範囲（最後の行は空白なので除外）
+    return_range = f"D{data_start_row}:D{data_end_row - 1}"
 
-    # 計算結果セクション
+    # E4: 月次対数収益率の平均
+    ws[f"E{data_start_row}"] = f"=AVERAGE({return_range})"
+    ws[f"E{data_start_row}"].font = result_font
+    ws[f"E{data_start_row}"].number_format = "0.000%"
+    ws[f"E{data_start_row}"].fill = result_fill
+    ws[f"E{data_start_row}"].border = thin_border
+
+    # ── 計算結果セクション ──
     calc_start = data_end_row + 2
 
-    ws.merge_cells(f"A{calc_start}:D{calc_start}")
+    ws.merge_cells(f"A{calc_start}:E{calc_start}")
     ws[f"A{calc_start}"] = "【ボラティリティ計算】"
     ws[f"A{calc_start}"].font = header_font
 
-    # (1) 月次標準偏差
+    # (1) 月次標準偏差 (母集団)
     r1 = calc_start + 1
     ws[f"A{r1}"] = "①"
     ws[f"A{r1}"].font = data_font
@@ -211,9 +232,10 @@ def generate_volatility_excel(input_bytes: bytes) -> bytes:
 
     notes = [
         "1. 月次株価の終値データを使用",
-        "2. 対数収益率 = LN(当月終値 / 前月終値) を各月について算出",
-        "3. 対数収益率の標準偏差（STDEV）を月次ボラティリティとする",
-        "4. 年率ボラティリティ = 月次ボラティリティ × √12",
+        "2. 対数株価 = LN(株価) を算出",
+        "3. 対数収益率 = 当月の対数株価 − 前月の対数株価",
+        "4. 対数収益率の標準偏差（STDEVP）を月次ボラティリティとする",
+        "5. 年率ボラティリティ = 月次ボラティリティ × √12",
     ]
     for j, note in enumerate(notes):
         ws[f"A{note_start + 1 + j}"] = note
