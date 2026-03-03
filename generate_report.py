@@ -145,6 +145,31 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
 # 2. docx テキスト置換 (フォーマット保持)
 # ──────────────────────────────────────────────
 
+def insert_paragraph_after(paragraph, text, font_name="ＭＳ Ｐ明朝"):
+    """指定段落の直後に新しい段落を挿入 (同じフォーマットで)"""
+    from docx.oxml.ns import qn
+    from copy import deepcopy
+    new_p = deepcopy(paragraph._element)
+    # テキストをクリアして新しいテキストを設定
+    for r in new_p.findall(qn('w:r')):
+        new_p.remove(r)
+    run_elem = paragraph._element.makeelement(qn('w:r'), {})
+    rPr = run_elem.makeelement(qn('w:rPr'), {})
+    rFonts = rPr.makeelement(qn('w:rFonts'), {
+        qn('w:ascii'): font_name,
+        qn('w:eastAsia'): font_name,
+        qn('w:hAnsi'): font_name,
+    })
+    rPr.append(rFonts)
+    run_elem.append(rPr)
+    t_elem = run_elem.makeelement(qn('w:t'), {})
+    t_elem.text = text
+    run_elem.append(t_elem)
+    new_p.append(run_elem)
+    paragraph._element.addnext(new_p)
+    return new_p
+
+
 def replace_in_runs(paragraph, old_text, new_text):
     """
     段落内の複数 run にまたがるテキストを置換。
@@ -239,12 +264,38 @@ def main():
     print(f"  日次売買高中央値: {data['median_daily_volume']:,}株")
     print(f"  流動性 (10%): {data['liquidity_shares']:,}株")
     print(f"    算出期間: {fmt_date_jp(data['volume_start_date'])} - {fmt_date_jp(data['volume_end_date'])}")
-    print(f"  配当: {data['dividend_per_share']}円/株 ({data['dividend_yield']}%)")
+    dividend_per_share = data['dividend_per_share']
+    dividend_yield = data['dividend_yield']
+    print(f"  配当(Yahoo Finance): {dividend_per_share}円/株 ({dividend_yield}%)")
     print(f"  報告書日付: {fmt_date_jp(data['report_date'])}")
 
     # ── テンプレート読み込み ──
     print("\nテンプレート読み込み中...")
     doc = Document(TEMPLATE_PATH)
+
+    # ── トップページに各種項目を挿入 ──
+    # 段落[25]「代表取締役社長　宮崎明　殿」の後に追加
+    from docx.oxml.ns import qn
+    from docx.text.paragraph import Paragraph
+
+    top_items = [
+        "",  # 空行
+        "権利行使価額：",
+        "権利行使期間：",
+        "決議日：",
+        "新株予約権の総個数：",
+        "行使による発行株式総数：",
+        "算定に関する特約事項：",
+    ]
+
+    for i, para in enumerate(doc.paragraphs):
+        if "殿" in para.text and "代表" in para.text:
+            current = para
+            for item_text in top_items:
+                insert_paragraph_after(current, item_text)
+                next_p = current._element.getnext()
+                current = Paragraph(next_p, para._parent)
+            break
 
     # ── 置換定義 ──
     # テンプレート内のジェリービーンズグループ固有の値 → 新しい値
@@ -276,11 +327,11 @@ def main():
 
         # 配当 (長い文字列を先に置換 → 短い文字列が壊れない)
         ("0%（0円/株）",
-         f"{data['dividend_yield']}%（{data['dividend_per_share']}円/株）"),
+         f"{dividend_yield}%（{dividend_per_share}円/株）"),
 
-        # 報告書日付 (表紙 + 売買高期間の終了日)
+        # 報告書日付 (表紙) → 評価基準日と同日
         # ※売買高期間の日付が先に置換されるため、残っている箇所のみ対象
-        ("2025年6月12日", fmt_date_jp(data['report_date'])),
+        ("2025年6月12日", fmt_date_jp(eval_dt)),
 
         # 評価基準日 (本文)
         ("2025年6月13日", fmt_date_jp(eval_dt)),
