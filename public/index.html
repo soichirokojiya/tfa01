@@ -322,7 +322,7 @@
       }
       // 標準偏差（不偏）
       const mean = logReturns.reduce((s, v) => s + v, 0) / logReturns.length;
-      const variance = logReturns.reduce((s, v) => s + (v - mean) ** 2, 0) / (logReturns.length - 1);
+      const variance = logReturns.reduce((s, v) => s + (v - mean) ** 2, 0) / logReturns.length;
       const monthlyStd = Math.sqrt(variance);
       const annualVol = monthlyStd * Math.sqrt(12) * 100;
       // 期間ラベル

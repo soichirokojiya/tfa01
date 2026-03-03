@@ -147,7 +147,7 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
     vol_end = (vol_end_month + timedelta(days=1)).strftime("%Y-%m-%d")
     hist_monthly = ticker.history(start=vol_start, end=vol_end, interval="1mo")
     returns = np.log(hist_monthly["Close"] / hist_monthly["Close"].shift(1)).dropna()
-    annual_vol = returns.std() * np.sqrt(12)
+    annual_vol = returns.std(ddof=0) * np.sqrt(12)
     vol_start_label = f"{vol_start_month.year}年{vol_start_month.month}月"
     vol_end_label = f"{vol_end_month.year}年{vol_end_month.month}月"
 

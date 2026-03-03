@@ -162,7 +162,7 @@ def generate_volatility_excel(input_path: str, output_path: str = None):
     ws[f"B{r1}"].font = data_font
     ws.merge_cells(f"B{r1}:C{r1}")
     cell_monthly = ws[f"D{r1}"]
-    cell_monthly.value = f"=STDEV({return_range})"
+    cell_monthly.value = f"=STDEVP({return_range})"
     cell_monthly.font = result_font
     cell_monthly.number_format = "0.000000"
     cell_monthly.fill = result_fill
@@ -170,7 +170,7 @@ def generate_volatility_excel(input_path: str, output_path: str = None):
 
     # 数式説明
     r1e = r1 + 1
-    ws[f"B{r1e}"] = f"  = STDEV({return_range})"
+    ws[f"B{r1e}"] = f"  = STDEVP({return_range})"
     ws[f"B{r1e}"].font = Font(name="ＭＳ Ｐゴシック", size=9, color="666666")
 
     # (2) 年率換算 = 月次σ × √12
