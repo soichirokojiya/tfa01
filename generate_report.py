@@ -55,6 +55,36 @@ def fetch_japanese_company_name(ticker_code: str) -> str:
     return name.strip()
 
 
+def fetch_company_profile(ticker_code: str) -> dict:
+    """Yahoo Finance Japan から会社プロフィール情報を取得"""
+    url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T/profile"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        html = resp.read().decode("utf-8")
+
+    def extract(label):
+        m = re.search(rf'<th[^>]*>{label}</th>\s*<td[^>]*>(.*?)</td>', html, re.DOTALL)
+        if m:
+            return re.sub(r'<[^>]+>', '', m.group(1)).strip()
+        return ""
+
+    # 所在地（郵便番号除去）
+    address = ""
+    m = re.search(r'〒[\d\-]+\s*(.+?)(?=<|\")', html)
+    if m:
+        address = m.group(1).strip()
+
+    # 代表者名から肩書と名前を分離
+    representative = extract("代表者名")  # 例: "宮崎　明"
+
+    return {
+        "representative": representative,
+        "address": address,
+        "established": extract("設立年月日"),  # 例: "1990年4月10日"
+        "settlement": extract("決算"),  # 例: "1月末日"
+    }
+
+
 def fetch_stock_data(ticker_code: str, eval_date: str):
     """
     yfinance から株価データを取得
@@ -125,6 +155,9 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
 
     dividend_yield = round((dividend_per_share / stock_price * 100), 2) if stock_price > 0 else 0.0
 
+    # --- 発行済株式総数 ---
+    shares_outstanding = ticker.info.get("sharesOutstanding", 0)
+
     return {
         "stock_price": stock_price,
         "stock_price_date": actual_price_date,
@@ -138,6 +171,7 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
         "dividend_yield": dividend_yield,
         "dividend_per_share": dividend_per_share,
         "report_date": report_date,
+        "shares_outstanding": shares_outstanding,
     }
 
 
@@ -255,6 +289,13 @@ def main():
     company_name_jp = fetch_japanese_company_name(ticker_code)
     print(f"  社名: 株式会社{company_name_jp}")
 
+    print("会社プロフィール取得中...")
+    profile = fetch_company_profile(ticker_code)
+    print(f"  代表者: {profile['representative']}")
+    print(f"  所在地: {profile['address']}")
+    print(f"  設立: {profile['established']}")
+    print(f"  決算: {profile['settlement']}")
+
     print("株価データ取得中...")
     data = fetch_stock_data(ticker_code, eval_date)
 
@@ -267,6 +308,7 @@ def main():
     dividend_per_share = data['dividend_per_share']
     dividend_yield = data['dividend_yield']
     print(f"  配当(Yahoo Finance): {dividend_per_share}円/株 ({dividend_yield}%)")
+    print(f"  発行済株式総数: {data['shares_outstanding']:,}株")
     print(f"  報告書日付: {fmt_date_jp(data['report_date'])}")
 
     # ── テンプレート読み込み ──
@@ -335,6 +377,22 @@ def main():
 
         # 評価基準日 (本文)
         ("2025年6月13日", fmt_date_jp(eval_dt)),
+
+        # 発行済株式総数
+        ("33,950,000", f"{data['shares_outstanding']:,}"),
+
+        # 代表者名 (本文中 "宮崎明" を置換、全角スペース含むパターンも)
+        ("宮崎明", profile['representative'].replace("　", "")),
+        ("宮崎\u3000明", profile['representative']),
+
+        # 所在地
+        ("東京都台東区上野1-16-5", profile['address']),
+
+        # 設立年月 (テンプレート: "1990年4月")
+        ("1990年4月", profile['established'].replace("10日", "").rstrip("日")),
+
+        # 決算日 (テンプレート: "1月末")
+        ("1月末", profile['settlement'].replace("日", "")),
     ]
 
     print("\n置換実行中...")
