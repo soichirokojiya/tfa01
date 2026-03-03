@@ -209,7 +209,6 @@ class handler(BaseHTTPRequestHandler):
             eval_dt = datetime.strptime(eval_date, "%Y-%m-%d")
 
             # TOPページ入力項目
-            exercise_price = body.get("exercise_price", "")
             exercise_start = body.get("exercise_start", "")
             exercise_end = body.get("exercise_end", "")
             resolution_date = body.get("resolution_date", "")
@@ -247,7 +246,7 @@ class handler(BaseHTTPRequestHandler):
 
             top_items = [
                 "",
-                f"権利行使価額：{exercise_price}",
+                f"権利行使価額：{data['stock_price']}円",
                 f"権利行使期間：{exercise_period_text}",
                 f"決議日：{resolution_text}",
                 f"新株予約権の総個数：{warrant_total}",
@@ -287,6 +286,8 @@ class handler(BaseHTTPRequestHandler):
                 ("東京都台東区上野1-16-5", profile['address']),
                 ("1990年4月", profile['established'].replace("10日", "").rstrip("日")),
                 ("1月末", profile['settlement'].replace("日", "")),
+                # 権利行使価格 = 株価と同額
+                ("95円", f"{data['stock_price']}円"),
             ]
 
             # 公正価値 → 株価比率

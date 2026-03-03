@@ -35,16 +35,6 @@
       color: #888;
       margin-bottom: 32px;
     }
-    .section-title {
-      font-size: 14px;
-      font-weight: 700;
-      color: #1a1a2e;
-      margin-top: 24px;
-      margin-bottom: 12px;
-      padding-bottom: 6px;
-      border-bottom: 2px solid #eef2ff;
-    }
-    .section-title:first-of-type { margin-top: 0; }
     label {
       display: block;
       font-size: 13px;
@@ -75,6 +65,19 @@
       gap: 12px;
     }
     .row > div { flex: 1; }
+    .company-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1a1a2e;
+      margin-bottom: 16px;
+      min-height: 20px;
+    }
+    .company-name.loading { color: #999; }
+    .separator {
+      border: none;
+      border-top: 1px solid #eee;
+      margin: 20px 0;
+    }
     button {
       width: 100%;
       padding: 14px;
@@ -111,15 +114,11 @@
       margin-right: 6px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .auto-tag {
-      display: inline-block;
-      font-size: 10px;
-      background: #eef2ff;
-      color: #4a6cf7;
-      padding: 1px 6px;
-      border-radius: 4px;
-      margin-left: 4px;
-      font-weight: 400;
+    input[type="file"] {
+      padding: 8px;
+      font-size: 13px;
+      border: 1px dashed #ccc;
+      background: #fafafa;
     }
   </style>
 </head>
@@ -128,12 +127,10 @@
     <h1>新株予約権評価報告書</h1>
     <p class="subtitle">必要な項目を入力して報告書を生成してください</p>
 
-    <div class="section-title">基本情報 <span class="auto-tag">自動取得</span></div>
-
     <div class="row">
       <div>
         <label for="ticker">上場コード *</label>
-        <input type="text" id="ticker" placeholder="例: 3070" maxlength="5" inputmode="numeric">
+        <input type="text" id="ticker" maxlength="5" inputmode="numeric">
       </div>
       <div>
         <label for="evalDate">評価基準日 *</label>
@@ -141,10 +138,9 @@
       </div>
     </div>
 
-    <div class="section-title">TOPページ記載項目</div>
+    <div class="company-name" id="companyName"></div>
 
-    <label for="exercisePrice">権利行使価額</label>
-    <input type="text" id="exercisePrice" placeholder="例: 95円">
+    <hr class="separator">
 
     <div class="row">
       <div>
@@ -163,20 +159,38 @@
     <div class="row">
       <div>
         <label for="warrantTotal">新株予約権の総個数</label>
-        <input type="text" id="warrantTotal" placeholder="例: 618,750個">
+        <input type="text" id="warrantTotal">
       </div>
       <div>
         <label for="issuableShares">行使による発行株式総数</label>
-        <input type="text" id="issuableShares" placeholder="例: 618,750株">
+        <input type="text" id="issuableShares">
       </div>
     </div>
 
     <label for="fairValue">1株あたりの公正価値</label>
     <p class="hint">入力すると株価比率（公正価値÷株価）を自動計算して報告書に反映</p>
-    <input type="text" id="fairValue" placeholder="例: 51.04">
+    <input type="text" id="fairValue">
 
     <label for="specialTerms">算定に関する特約事項</label>
-    <textarea id="specialTerms" placeholder="任意入力"></textarea>
+    <textarea id="specialTerms"></textarea>
+
+    <hr class="separator">
+
+    <label for="monthlyFile">月次株価データ（ボラティリティ計算用）</label>
+    <p class="hint">SPEEDAからエクスポートした月次株価Excel</p>
+    <input type="file" id="monthlyFile" accept=".xlsx,.xls,.csv">
+
+    <label for="dailyFile">日次株価・出来高データ（出来高中央値計算用）</label>
+    <p class="hint">SPEEDAからエクスポートした日次株価Excel</p>
+    <input type="file" id="dailyFile" accept=".xlsx,.xls,.csv">
+
+    <label for="bondFile">売買参考統計値（リスクフリーレート用）</label>
+    <p class="hint">日本証券業協会の売買参考統計値 .xls</p>
+    <input type="file" id="bondFile" accept=".xlsx,.xls">
+
+    <label for="betaImage">β値スクリーンショット</label>
+    <p class="hint">SPEEDAのβ値画面のスクリーンショット</p>
+    <input type="file" id="betaImage" accept="image/*">
 
     <button id="generateBtn" onclick="generate()">報告書を生成</button>
 
@@ -185,6 +199,38 @@
 
   <script>
     document.getElementById('evalDate').value = new Date().toISOString().split('T')[0];
+
+    // 上場コード入力時に会社名を自動取得
+    let lookupTimer = null;
+    document.getElementById('ticker').addEventListener('input', function() {
+      const code = this.value.trim();
+      const el = document.getElementById('companyName');
+      clearTimeout(lookupTimer);
+      if (code.length >= 4) {
+        el.textContent = '取得中...';
+        el.className = 'company-name loading';
+        lookupTimer = setTimeout(() => {
+          fetch('/api/lookup?code=' + encodeURIComponent(code))
+            .then(r => r.json())
+            .then(data => {
+              if (data.name) {
+                el.textContent = data.name;
+                el.className = 'company-name';
+              } else {
+                el.textContent = '会社名を取得できませんでした';
+                el.className = 'company-name loading';
+              }
+            })
+            .catch(() => {
+              el.textContent = '';
+              el.className = 'company-name';
+            });
+        }, 500);
+      } else {
+        el.textContent = '';
+        el.className = 'company-name';
+      }
+    });
 
     async function generate() {
       const ticker = document.getElementById('ticker').value.trim();
@@ -201,7 +247,6 @@
       const payload = {
         ticker_code: ticker,
         eval_date: evalDate,
-        exercise_price: document.getElementById('exercisePrice').value.trim(),
         exercise_start: document.getElementById('exerciseStart').value,
         exercise_end: document.getElementById('exerciseEnd').value,
         resolution_date: document.getElementById('resolutionDate').value,
