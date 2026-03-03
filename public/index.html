@@ -11,8 +11,9 @@
       background: #f5f7fa;
       color: #333;
       min-height: 100vh;
+      padding: 40px 16px;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
     }
     .container {
@@ -20,7 +21,7 @@
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,0.08);
       padding: 48px 40px;
-      max-width: 480px;
+      max-width: 560px;
       width: 100%;
     }
     h1 {
@@ -34,24 +35,46 @@
       color: #888;
       margin-bottom: 32px;
     }
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-top: 24px;
+      margin-bottom: 12px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #eef2ff;
+    }
+    .section-title:first-of-type { margin-top: 0; }
     label {
       display: block;
       font-size: 13px;
       font-weight: 600;
       color: #555;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
-    input {
+    .hint {
+      font-size: 11px;
+      color: #999;
+      margin-bottom: 4px;
+    }
+    input, textarea {
       width: 100%;
-      padding: 12px 14px;
+      padding: 10px 12px;
       border: 1px solid #ddd;
       border-radius: 8px;
-      font-size: 16px;
+      font-size: 15px;
       outline: none;
       transition: border-color 0.2s;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
+      font-family: inherit;
     }
-    input:focus { border-color: #4a6cf7; }
+    input:focus, textarea:focus { border-color: #4a6cf7; }
+    textarea { resize: vertical; min-height: 60px; }
+    .row {
+      display: flex;
+      gap: 12px;
+    }
+    .row > div { flex: 1; }
     button {
       width: 100%;
       padding: 14px;
@@ -63,12 +86,10 @@
       font-weight: 600;
       cursor: pointer;
       transition: background 0.2s;
+      margin-top: 8px;
     }
     button:hover { background: #2d2d5e; }
-    button:disabled {
-      background: #aaa;
-      cursor: not-allowed;
-    }
+    button:disabled { background: #aaa; cursor: not-allowed; }
     .status {
       margin-top: 16px;
       padding: 12px;
@@ -76,21 +97,9 @@
       font-size: 13px;
       display: none;
     }
-    .status.loading {
-      display: block;
-      background: #eef2ff;
-      color: #4a6cf7;
-    }
-    .status.success {
-      display: block;
-      background: #efffef;
-      color: #2a7d2a;
-    }
-    .status.error {
-      display: block;
-      background: #fff0f0;
-      color: #c00;
-    }
+    .status.loading { display: block; background: #eef2ff; color: #4a6cf7; }
+    .status.success { display: block; background: #efffef; color: #2a7d2a; }
+    .status.error { display: block; background: #fff0f0; color: #c00; }
     .spinner {
       display: inline-block;
       width: 14px; height: 14px;
@@ -102,18 +111,72 @@
       margin-right: 6px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .auto-tag {
+      display: inline-block;
+      font-size: 10px;
+      background: #eef2ff;
+      color: #4a6cf7;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-left: 4px;
+      font-weight: 400;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>新株予約権評価報告書</h1>
-    <p class="subtitle">上場コードと評価基準日を入力してください</p>
+    <p class="subtitle">必要な項目を入力して報告書を生成してください</p>
 
-    <label for="ticker">上場コード</label>
-    <input type="text" id="ticker" placeholder="例: 3070" maxlength="5" inputmode="numeric">
+    <div class="section-title">基本情報 <span class="auto-tag">自動取得</span></div>
 
-    <label for="evalDate">評価基準日</label>
-    <input type="date" id="evalDate">
+    <div class="row">
+      <div>
+        <label for="ticker">上場コード *</label>
+        <input type="text" id="ticker" placeholder="例: 3070" maxlength="5" inputmode="numeric">
+      </div>
+      <div>
+        <label for="evalDate">評価基準日 *</label>
+        <input type="date" id="evalDate">
+      </div>
+    </div>
+
+    <div class="section-title">TOPページ記載項目</div>
+
+    <label for="exercisePrice">権利行使価額</label>
+    <input type="text" id="exercisePrice" placeholder="例: 95円">
+
+    <div class="row">
+      <div>
+        <label for="exerciseStart">権利行使期間（開始）</label>
+        <input type="date" id="exerciseStart">
+      </div>
+      <div>
+        <label for="exerciseEnd">権利行使期間（終了）</label>
+        <input type="date" id="exerciseEnd">
+      </div>
+    </div>
+
+    <label for="resolutionDate">決議日</label>
+    <input type="date" id="resolutionDate">
+
+    <div class="row">
+      <div>
+        <label for="warrantTotal">新株予約権の総個数</label>
+        <input type="text" id="warrantTotal" placeholder="例: 618,750個">
+      </div>
+      <div>
+        <label for="issuableShares">行使による発行株式総数</label>
+        <input type="text" id="issuableShares" placeholder="例: 618,750株">
+      </div>
+    </div>
+
+    <label for="fairValue">1株あたりの公正価値</label>
+    <p class="hint">入力すると株価比率（公正価値÷株価）を自動計算して報告書に反映</p>
+    <input type="text" id="fairValue" placeholder="例: 51.04">
+
+    <label for="specialTerms">算定に関する特約事項</label>
+    <textarea id="specialTerms" placeholder="任意入力"></textarea>
 
     <button id="generateBtn" onclick="generate()">報告書を生成</button>
 
@@ -121,7 +184,6 @@
   </div>
 
   <script>
-    // デフォルトで今日の日付をセット
     document.getElementById('evalDate').value = new Date().toISOString().split('T')[0];
 
     async function generate() {
@@ -136,6 +198,19 @@
         return;
       }
 
+      const payload = {
+        ticker_code: ticker,
+        eval_date: evalDate,
+        exercise_price: document.getElementById('exercisePrice').value.trim(),
+        exercise_start: document.getElementById('exerciseStart').value,
+        exercise_end: document.getElementById('exerciseEnd').value,
+        resolution_date: document.getElementById('resolutionDate').value,
+        warrant_total: document.getElementById('warrantTotal').value.trim(),
+        issuable_shares: document.getElementById('issuableShares').value.trim(),
+        fair_value_per_share: document.getElementById('fairValue').value.trim(),
+        special_terms: document.getElementById('specialTerms').value.trim(),
+      };
+
       btn.disabled = true;
       status.className = 'status loading';
       status.innerHTML = '<span class="spinner"></span>データ取得・報告書生成中...（30秒ほどかかります）';
@@ -144,7 +219,7 @@
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticker_code: ticker, eval_date: evalDate }),
+          body: JSON.stringify(payload),
         });
 
         if (!res.ok) {

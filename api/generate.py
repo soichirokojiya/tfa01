@@ -1,7 +1,6 @@
 """
 Vercel Serverless Function: 新株予約権評価報告書を生成して返す
 POST /api/generate
-Body: {"ticker_code": "3070", "eval_date": "2025-06-13"}
 """
 
 import json
@@ -9,11 +8,15 @@ import os
 import re
 import math
 import urllib.request
+import urllib.parse
 import tempfile
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from http.server import BaseHTTPRequestHandler
+from copy import deepcopy
 from docx import Document
+from docx.oxml.ns import qn
+from docx.text.paragraph import Paragraph
 import yfinance as yf
 import numpy as np
 import warnings
@@ -42,6 +45,31 @@ def fetch_japanese_company_name(ticker_code: str) -> str:
     return name.strip()
 
 
+def fetch_company_profile(ticker_code: str) -> dict:
+    url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T/profile"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        html = resp.read().decode("utf-8")
+
+    def extract(label):
+        m = re.search(rf'<th[^>]*>{label}</th>\s*<td[^>]*>(.*?)</td>', html, re.DOTALL)
+        if m:
+            return re.sub(r'<[^>]+>', '', m.group(1)).strip()
+        return ""
+
+    address = ""
+    m = re.search(r'〒[\d\-]+\s*(.+?)(?=<|")', html)
+    if m:
+        address = m.group(1).strip()
+
+    return {
+        "representative": extract("代表者名"),
+        "address": address,
+        "established": extract("設立年月日"),
+        "settlement": extract("決算"),
+    }
+
+
 def fetch_stock_data(ticker_code: str, eval_date: str):
     ticker = yf.Ticker(f"{ticker_code}.T")
     eval_dt = datetime.strptime(eval_date, "%Y-%m-%d")
@@ -64,8 +92,8 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
     vol_start_label = f"{vol_start_month.year}年{vol_start_month.month}月"
     vol_end_label = f"{vol_end_month.year}年{vol_end_month.month}月"
 
-    report_date = eval_dt - timedelta(days=1)
-    volume_end = report_date
+    report_date = eval_dt
+    volume_end = eval_dt - timedelta(days=1)
     volume_start = volume_end - relativedelta(years=5)
     hist_daily = ticker.history(
         start=volume_start.strftime("%Y-%m-%d"),
@@ -82,6 +110,8 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
             dividend_per_share = int(divs_before.iloc[-1])
     dividend_yield = round((dividend_per_share / stock_price * 100), 2) if stock_price > 0 else 0.0
 
+    shares_outstanding = ticker.info.get("sharesOutstanding", 0)
+
     return {
         "stock_price": stock_price,
         "volatility": round(annual_vol * 100, 2),
@@ -94,12 +124,34 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
         "dividend_yield": dividend_yield,
         "dividend_per_share": dividend_per_share,
         "report_date": report_date,
+        "shares_outstanding": shares_outstanding,
     }
 
 
 # ──────────────────────────────────────────────
-# docx 置換
+# docx 操作
 # ──────────────────────────────────────────────
+
+def insert_paragraph_after(paragraph, text, font_name="ＭＳ Ｐ明朝"):
+    new_p = deepcopy(paragraph._element)
+    for r in new_p.findall(qn('w:r')):
+        new_p.remove(r)
+    run_elem = paragraph._element.makeelement(qn('w:r'), {})
+    rPr = run_elem.makeelement(qn('w:rPr'), {})
+    rFonts = rPr.makeelement(qn('w:rFonts'), {
+        qn('w:ascii'): font_name,
+        qn('w:eastAsia'): font_name,
+        qn('w:hAnsi'): font_name,
+    })
+    rPr.append(rFonts)
+    run_elem.append(rPr)
+    t_elem = run_elem.makeelement(qn('w:t'), {})
+    t_elem.text = text
+    run_elem.append(t_elem)
+    new_p.append(run_elem)
+    paragraph._element.addnext(new_p)
+    return new_p
+
 
 def replace_in_runs(paragraph, old_text, new_text):
     full_text = "".join(run.text for run in paragraph.runs)
@@ -156,12 +208,62 @@ class handler(BaseHTTPRequestHandler):
             eval_date = body["eval_date"]
             eval_dt = datetime.strptime(eval_date, "%Y-%m-%d")
 
+            # TOPページ入力項目
+            exercise_price = body.get("exercise_price", "")
+            exercise_start = body.get("exercise_start", "")
+            exercise_end = body.get("exercise_end", "")
+            resolution_date = body.get("resolution_date", "")
+            warrant_total = body.get("warrant_total", "")
+            issuable_shares = body.get("issuable_shares", "")
+            fair_value_str = body.get("fair_value_per_share", "")
+            special_terms = body.get("special_terms", "")
+
+            fair_value_per_share = float(fair_value_str) if fair_value_str else None
+
             # データ取得
             company_name_jp = fetch_japanese_company_name(ticker_code)
+            profile = fetch_company_profile(ticker_code)
             data = fetch_stock_data(ticker_code, eval_date)
 
             # テンプレート読み込み
             doc = Document(TEMPLATE_PATH)
+
+            # TOPページに項目挿入
+            # 行使期間のフォーマット
+            exercise_period_text = ""
+            if exercise_start and exercise_end:
+                es = datetime.strptime(exercise_start, "%Y-%m-%d")
+                ee = datetime.strptime(exercise_end, "%Y-%m-%d")
+                exercise_period_text = f"{fmt_date_jp(es)}-{fmt_date_jp(ee)}"
+
+            fair_value_text = ""
+            if fair_value_per_share is not None:
+                fair_value_text = f"{fair_value_per_share}円"
+
+            resolution_text = ""
+            if resolution_date:
+                rd = datetime.strptime(resolution_date, "%Y-%m-%d")
+                resolution_text = fmt_date_jp(rd)
+
+            top_items = [
+                "",
+                f"権利行使価額：{exercise_price}",
+                f"権利行使期間：{exercise_period_text}",
+                f"決議日：{resolution_text}",
+                f"新株予約権の総個数：{warrant_total}",
+                f"行使による発行株式総数：{issuable_shares}",
+                f"1株あたりの公正価値：{fair_value_text}",
+                f"算定に関する特約事項：{special_terms}",
+            ]
+
+            for para in doc.paragraphs:
+                if "殿" in para.text and "代表" in para.text:
+                    current = para
+                    for item_text in top_items:
+                        insert_paragraph_after(current, item_text)
+                        next_p = current._element.getnext()
+                        current = Paragraph(next_p, para._parent)
+                    break
 
             # 置換
             replacements = [
@@ -177,9 +279,22 @@ class handler(BaseHTTPRequestHandler):
                  f"{fmt_date_jp(data['volume_start_date'])}から{fmt_date_jp(data['volume_end_date'])}"),
                 ("0%（0円/株）",
                  f"{data['dividend_yield']}%（{data['dividend_per_share']}円/株）"),
-                ("2025年6月12日", fmt_date_jp(data['report_date'])),
+                ("2025年6月12日", fmt_date_jp(eval_dt)),
                 ("2025年6月13日", fmt_date_jp(eval_dt)),
+                ("33,950,000", f"{data['shares_outstanding']:,}"),
+                ("宮崎明", profile['representative'].replace("\u3000", "")),
+                ("宮崎\u3000明", profile['representative']),
+                ("東京都台東区上野1-16-5", profile['address']),
+                ("1990年4月", profile['established'].replace("10日", "").rstrip("日")),
+                ("1月末", profile['settlement'].replace("日", "")),
             ]
+
+            # 公正価値 → 株価比率
+            if fair_value_per_share is not None:
+                price_ratio_raw = fair_value_per_share / data['stock_price'] * 100
+                price_ratio = math.ceil(price_ratio_raw * 100) / 100
+                replacements.append(("51.04円/株", f"{fair_value_per_share}円/株"))
+                replacements.append(("23.20%", f"{price_ratio:.2f}%"))
 
             for old, new in replacements:
                 replace_in_document(doc, old, new)
