@@ -227,43 +227,6 @@ class handler(BaseHTTPRequestHandler):
             # テンプレート読み込み
             doc = Document(TEMPLATE_PATH)
 
-            # TOPページに項目挿入
-            # 行使期間のフォーマット
-            exercise_period_text = ""
-            if exercise_start and exercise_end:
-                es = datetime.strptime(exercise_start, "%Y-%m-%d")
-                ee = datetime.strptime(exercise_end, "%Y-%m-%d")
-                exercise_period_text = f"{fmt_date_jp(es)}-{fmt_date_jp(ee)}"
-
-            fair_value_text = ""
-            if fair_value_per_share is not None:
-                fair_value_text = f"{fair_value_per_share}円"
-
-            resolution_text = ""
-            if resolution_date:
-                rd = datetime.strptime(resolution_date, "%Y-%m-%d")
-                resolution_text = fmt_date_jp(rd)
-
-            top_items = [
-                "",
-                f"権利行使価額：{data['stock_price']}円",
-                f"権利行使期間：{exercise_period_text}",
-                f"決議日：{resolution_text}",
-                f"新株予約権の総個数：{warrant_total}",
-                f"行使による発行株式総数：{issuable_shares}",
-                f"1株あたりの公正価値：{fair_value_text}",
-                f"算定に関する特約事項：{special_terms}",
-            ]
-
-            for para in doc.paragraphs:
-                if "殿" in para.text and "代表" in para.text:
-                    current = para
-                    for item_text in top_items:
-                        insert_paragraph_after(current, item_text)
-                        next_p = current._element.getnext()
-                        current = Paragraph(next_p, para._parent)
-                    break
-
             # 置換
             replacements = [
                 ("ジェリービーンズグループ", company_name_jp),

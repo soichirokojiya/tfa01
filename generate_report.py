@@ -316,31 +316,6 @@ def main():
     print("\nテンプレート読み込み中...")
     doc = Document(TEMPLATE_PATH)
 
-    # ── トップページに各種項目を挿入 ──
-    # 段落[25]「代表取締役社長　宮崎明　殿」の後に追加
-    from docx.oxml.ns import qn
-    from docx.text.paragraph import Paragraph
-
-    top_items = [
-        "",  # 空行
-        f"権利行使価額：{data['stock_price']}円",
-        "権利行使期間：",
-        "決議日：",
-        "新株予約権の総個数：",
-        "行使による発行株式総数：",
-        f"1株あたりの公正価値：{f'{fair_value_per_share}円' if fair_value_per_share is not None else ''}",
-        "算定に関する特約事項：",
-    ]
-
-    for i, para in enumerate(doc.paragraphs):
-        if "殿" in para.text and "代表" in para.text:
-            current = para
-            for item_text in top_items:
-                insert_paragraph_after(current, item_text)
-                next_p = current._element.getnext()
-                current = Paragraph(next_p, para._parent)
-            break
-
     # ── 置換定義 ──
     # テンプレート内のジェリービーンズグループ固有の値 → 新しい値
     replacements = [
