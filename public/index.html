@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>新株予約権評価報告書 生成ツール</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+      background: #f5f7fa;
+      color: #333;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #1a1a2e;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 32px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 6px;
+    }
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 20px;
+    }
+    input:focus { border-color: #4a6cf7; }
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #1a1a2e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #2d2d5e; }
+    button:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+    }
+    .status.loading {
+      display: block;
+      background: #eef2ff;
+      color: #4a6cf7;
+    }
+    .status.success {
+      display: block;
+      background: #efffef;
+      color: #2a7d2a;
+    }
+    .status.error {
+      display: block;
+      background: #fff0f0;
+      color: #c00;
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid #4a6cf7;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>新株予約権評価報告書</h1>
+    <p class="subtitle">上場コードと評価基準日を入力してください</p>
+
+    <label for="ticker">上場コード</label>
+    <input type="text" id="ticker" placeholder="例: 3070" maxlength="5" inputmode="numeric">
+
+    <label for="evalDate">評価基準日</label>
+    <input type="date" id="evalDate">
+
+    <button id="generateBtn" onclick="generate()">報告書を生成</button>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    // デフォルトで今日の日付をセット
+    document.getElementById('evalDate').value = new Date().toISOString().split('T')[0];
+
+    async function generate() {
+      const ticker = document.getElementById('ticker').value.trim();
+      const evalDate = document.getElementById('evalDate').value;
+      const btn = document.getElementById('generateBtn');
+      const status = document.getElementById('status');
+
+      if (!ticker || !evalDate) {
+        status.className = 'status error';
+        status.textContent = '上場コードと評価基準日を入力してください。';
+        return;
+      }
+
+      btn.disabled = true;
+      status.className = 'status loading';
+      status.innerHTML = '<span class="spinner"></span>データ取得・報告書生成中...（30秒ほどかかります）';
+
+      try {
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker_code: ticker, eval_date: evalDate }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'サーバーエラー');
+        }
+
+        const blob = await res.blob();
+        const disposition = res.headers.get('Content-Disposition') || '';
+        let filename = `報告書_${ticker}.docx`;
+        const match = disposition.match(/filename\*=UTF-8''(.+)/);
+        if (match) filename = decodeURIComponent(match[1]);
+
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+
+        status.className = 'status success';
+        status.textContent = `${filename} をダウンロードしました。`;
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = `エラー: ${e.message}`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
