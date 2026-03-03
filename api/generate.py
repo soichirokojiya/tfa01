@@ -25,6 +25,33 @@ warnings.filterwarnings("ignore")
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "..", "template.docx")
 
 
+def fetch_yahoo_quote_data(ticker_code: str) -> dict:
+    """Yahoo Finance Japan から発行済株式数・配当情報を取得"""
+    result = {"shares_outstanding": 0, "dividend_per_share": 0, "dividend_yield": 0.0}
+    try:
+        url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8")
+        m = re.search(r'window\.__PRELOADED_STATE__\s*=\s*(\{.*?\});', html, re.DOTALL)
+        if m:
+            state = json.loads(m.group(1))
+            ref = state.get("mainStocksDetail", {}).get("referenceIndex", {})
+            shares_str = ref.get("sharesIssued", "")
+            if shares_str:
+                result["shares_outstanding"] = int(shares_str.replace(",", ""))
+            dps_str = ref.get("dps", "")
+            if dps_str:
+                dps_val = float(dps_str)
+                result["dividend_per_share"] = int(dps_val)
+            yield_str = ref.get("shareDividendYield", "")
+            if yield_str:
+                result["dividend_yield"] = round(float(yield_str), 2)
+    except Exception:
+        pass
+    return result
+
+
 # ──────────────────────────────────────────────
 # データ取得
 # ──────────────────────────────────────────────
@@ -114,7 +141,7 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
 
     report_date = eval_dt
     volume_end = eval_dt - timedelta(days=1)
-    volume_start = volume_end - relativedelta(years=5)
+    volume_start = eval_dt - relativedelta(years=5)
     hist_daily = ticker.history(
         start=volume_start.strftime("%Y-%m-%d"),
         end=(volume_end + timedelta(days=1)).strftime("%Y-%m-%d"),
@@ -122,15 +149,11 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
     median_volume = int(hist_daily["Volume"].median())
     liquidity_shares = math.ceil(median_volume * 0.1)
 
-    dividends = ticker.dividends
-    dividend_per_share = 0
-    if len(dividends) > 0:
-        divs_before = dividends[dividends.index.strftime("%Y-%m-%d") <= eval_date]
-        if len(divs_before) > 0:
-            dividend_per_share = int(divs_before.iloc[-1])
-    dividend_yield = round((dividend_per_share / stock_price * 100), 2) if stock_price > 0 else 0.0
-
-    shares_outstanding = ticker.info.get("sharesOutstanding", 0)
+    # Yahoo Finance Japan から配当・発行済株式数を取得
+    yahoo_data = fetch_yahoo_quote_data(ticker_code)
+    dividend_per_share = yahoo_data["dividend_per_share"]
+    dividend_yield = yahoo_data["dividend_yield"]
+    shares_outstanding = yahoo_data["shares_outstanding"]
 
     return {
         "stock_price": stock_price,

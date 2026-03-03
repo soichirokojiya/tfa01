@@ -11,6 +11,11 @@
       "config": { "maxDuration": 15 }
     },
     {
+      "src": "api/volatility.py",
+      "use": "@vercel/python",
+      "config": { "maxDuration": 30 }
+    },
+    {
       "src": "public/**",
       "use": "@vercel/static"
     }
@@ -18,6 +23,7 @@
   "routes": [
     { "src": "/api/generate", "dest": "/api/generate.py" },
     { "src": "/api/lookup", "dest": "/api/lookup.py" },
+    { "src": "/api/volatility", "dest": "/api/volatility.py" },
     { "src": "/(.*)", "dest": "/public/$1" }
   ]
 }

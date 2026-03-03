@@ -33,6 +33,34 @@ TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templa
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 
 
+def fetch_yahoo_quote_data(ticker_code: str) -> dict:
+    """Yahoo Finance Japan から発行済株式数・配当情報を取得"""
+    import json as _json
+    result = {"shares_outstanding": 0, "dividend_per_share": 0, "dividend_yield": 0.0}
+    try:
+        url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8")
+        m = re.search(r'window\.__PRELOADED_STATE__\s*=\s*(\{.*?\});', html, re.DOTALL)
+        if m:
+            state = _json.loads(m.group(1))
+            ref = state.get("mainStocksDetail", {}).get("referenceIndex", {})
+            shares_str = ref.get("sharesIssued", "")
+            if shares_str:
+                result["shares_outstanding"] = int(shares_str.replace(",", ""))
+            dps_str = ref.get("dps", "")
+            if dps_str:
+                dps_val = float(dps_str)
+                result["dividend_per_share"] = int(dps_val)
+            yield_str = ref.get("shareDividendYield", "")
+            if yield_str:
+                result["dividend_yield"] = round(float(yield_str), 2)
+    except Exception:
+        pass
+    return result
+
+
 # ──────────────────────────────────────────────
 # 1. データ取得
 # ──────────────────────────────────────────────
@@ -131,7 +159,7 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
     # テンプレート: "2020年6月13日から2025年6月12日"
     report_date = eval_dt - timedelta(days=1)  # 報告書日 = 基準日前日
     volume_end = report_date
-    volume_start = volume_end - relativedelta(years=5)
+    volume_start = eval_dt - relativedelta(years=5)
 
     hist_daily = ticker.history(
         start=volume_start.strftime("%Y-%m-%d"),
@@ -140,23 +168,11 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
     median_volume = int(hist_daily["Volume"].median())
     liquidity_shares = math.ceil(median_volume * 0.1)  # 10% 切り上げ
 
-    # --- 配当 ---
-    dividends = ticker.dividends
-    if len(dividends) > 0:
-        # 評価基準日以前の直近配当
-        divs_before = dividends[dividends.index.strftime("%Y-%m-%d") <= eval_date]
-        if len(divs_before) > 0:
-            recent_div = divs_before.iloc[-1]
-            dividend_per_share = int(recent_div)
-        else:
-            dividend_per_share = 0
-    else:
-        dividend_per_share = 0
-
-    dividend_yield = round((dividend_per_share / stock_price * 100), 2) if stock_price > 0 else 0.0
-
-    # --- 発行済株式総数 ---
-    shares_outstanding = ticker.info.get("sharesOutstanding", 0)
+    # --- 配当・発行済株式総数 (Yahoo Finance Japanからスクレイピング) ---
+    yahoo_data = fetch_yahoo_quote_data(ticker_code)
+    dividend_per_share = yahoo_data["dividend_per_share"]
+    dividend_yield = yahoo_data["dividend_yield"]
+    shares_outstanding = yahoo_data["shares_outstanding"]
 
     return {
         "stock_price": stock_price,
