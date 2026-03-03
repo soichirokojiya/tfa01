@@ -319,75 +319,40 @@ def main():
     # ── 置換定義 ──
     # テンプレート内のジェリービーンズグループ固有の値 → 新しい値
     replacements = [
-        # 社名 (「株式会社」は付いていない部分を置換)
         ("ジェリービーンズグループ", company_name_jp),
-
-        # 銘柄コード
         ("3070", ticker_code),
-
-        # 株価
-        ("220円", f"{data['stock_price']}円"),
-
-        # ボラティリティ
-        ("34.47%", f"{data['volatility']}%"),
-
-        # ボラティリティ算出期間 (テーブル注記)
-        ("2020年5月- 2025年5月", f"{data['vol_start_label']}- {data['vol_end_label']}"),
-
-        # 日次売買高中央値 (長い文字列を先に)
-        ("24,600", f"{data['median_daily_volume']:,}"),
-
-        # 流動性 10%
-        ("2,460", f"{data['liquidity_shares']:,}"),
-
-        # 売買高算出期間 (本文中 + SPEEDA注記、日付を含むので先に)
-        ("2020年6月13日から2025年6月12日",
+        ("110円", f"{data['stock_price']}円"),
+        ("62.54%", f"{data['volatility']}%"),
+        ("2021年2月- 2026年2月", f"{data['vol_start_label']}- {data['vol_end_label']}"),
+        ("2021年3月3日から2026年3月2日",
          f"{fmt_date_jp(data['volume_start_date'])}から{fmt_date_jp(data['volume_end_date'])}"),
-
-        # 配当 (長い文字列を先に置換 → 短い文字列が壊れない)
+        ("1,483,123", f"{data['median_daily_volume']:,}"),
+        ("148,313", f"{data['liquidity_shares']:,}"),
         ("0%（0円/株）",
          f"{dividend_yield}%（{dividend_per_share}円/株）"),
-
-        # 報告書日付 (表紙) → 評価基準日と同日
-        # ※売買高期間の日付が先に置換されるため、残っている箇所のみ対象
-        ("2025年6月12日", fmt_date_jp(eval_dt)),
-
-        # 評価基準日 (本文)
-        ("2025年6月13日", fmt_date_jp(eval_dt)),
-
-        # 発行済株式総数
-        ("33,950,000", f"{data['shares_outstanding']:,}"),
-
-        # 代表者名 (本文中 "宮崎明" を置換、全角スペース含むパターンも)
+        ("2026年3月2日", fmt_date_jp(eval_dt)),
+        ("79,440,000", f"{data['shares_outstanding']:,}"),
         ("宮崎明", profile['representative'].replace("　", "")),
         ("宮崎\u3000明", profile['representative']),
-
-        # 所在地
         ("東京都台東区上野1-16-5", profile['address']),
-
-        # 設立年月 (テンプレート: "1990年4月")
         ("1990年4月", profile['established'].replace("10日", "").rstrip("日")),
-
-        # 決算日 (テンプレート: "1月末")
         ("1月末", profile['settlement'].replace("日", "")),
-
-        # 権利行使価格 = 株価と同額
-        ("95円", f"{data['stock_price']}円"),
+        # 行使による払込価額 = 株価と同額
+        ("●円", f"{data['stock_price']}円"),
     ]
 
     # ── 1株あたり公正価値 → 株価比率計算 ──
     if fair_value_per_share is not None:
         stock_price = data['stock_price']
-        # 株価比率 = 公正価値 / 株価 × 100 (小数第2位で切り上げ)
-        import math
-        price_ratio_raw = fair_value_per_share / stock_price * 100
-        price_ratio = math.ceil(price_ratio_raw * 100) / 100  # 小数第2位切り上げ
+        price_ratio = round(fair_value_per_share / stock_price * 100, 2)
+        fair_value_per_unit = round(fair_value_per_share * 100)
         print(f"\n  1株あたり公正価値: {fair_value_per_share}円")
-        print(f"  株価比率: {fair_value_per_share} / {stock_price} × 100 = {price_ratio_raw:.4f}% → 切上げ {price_ratio:.2f}%")
+        print(f"  1個あたり公正価値: {fair_value_per_unit:,}円")
+        print(f"  株価比率: {fair_value_per_share} / {stock_price} × 100 = {price_ratio:.2f}%")
 
-        # テンプレート: 「51.04円/株　当初株価の23.20%」を置換
-        replacements.append(("51.04円/株", f"{fair_value_per_share}円/株"))
-        replacements.append(("23.20%", f"{price_ratio:.2f}%"))
+        replacements.append(("公正価値113円", f"公正価値{fair_value_per_unit:,}円"))
+        replacements.append(("1.13円/株", f"{fair_value_per_share}円/株"))
+        replacements.append(("当初株価の1.03%", f"当初株価の{price_ratio:.2f}%"))
 
     print("\n置換実行中...")
     for old, new in replacements:

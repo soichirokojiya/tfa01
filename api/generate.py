@@ -216,6 +216,12 @@ class handler(BaseHTTPRequestHandler):
             issuable_shares = body.get("issuable_shares", "")
             fair_value_str = body.get("fair_value_per_share", "")
             special_terms = body.get("special_terms", "")
+            risk_free_rate = body.get("risk_free_rate", "")
+            market_risk_premium = body.get("market_risk_premium", "")
+            beta_val = body.get("beta", "")
+            credit_cost = body.get("credit_cost", "")
+            bond_name = body.get("bond_name", "")
+            bond_maturity = body.get("bond_maturity", "")
 
             fair_value_per_share = float(fair_value_str) if fair_value_str else None
 
@@ -231,34 +237,79 @@ class handler(BaseHTTPRequestHandler):
             replacements = [
                 ("ジェリービーンズグループ", company_name_jp),
                 ("3070", ticker_code),
-                ("220円", f"{data['stock_price']}円"),
-                ("34.47%", f"{data['volatility']}%"),
-                ("2020年5月- 2025年5月",
+                ("110円", f"{data['stock_price']}円"),
+                ("62.54%", f"{data['volatility']}%"),
+                ("2021年2月- 2026年2月",
                  f"{data['vol_start_label']}- {data['vol_end_label']}"),
-                ("24,600", f"{data['median_daily_volume']:,}"),
-                ("2,460", f"{data['liquidity_shares']:,}"),
-                ("2020年6月13日から2025年6月12日",
+                ("2021年3月3日から2026年3月2日",
                  f"{fmt_date_jp(data['volume_start_date'])}から{fmt_date_jp(data['volume_end_date'])}"),
+                ("1,483,123", f"{data['median_daily_volume']:,}"),
+                ("148,313", f"{data['liquidity_shares']:,}"),
                 ("0%（0円/株）",
                  f"{data['dividend_yield']}%（{data['dividend_per_share']}円/株）"),
-                ("2025年6月12日", fmt_date_jp(eval_dt)),
-                ("2025年6月13日", fmt_date_jp(eval_dt)),
-                ("33,950,000", f"{data['shares_outstanding']:,}"),
+                ("2026年3月2日", fmt_date_jp(eval_dt)),
+                ("79,440,000", f"{data['shares_outstanding']:,}"),
                 ("宮崎明", profile['representative'].replace("\u3000", "")),
                 ("宮崎\u3000明", profile['representative']),
                 ("東京都台東区上野1-16-5", profile['address']),
                 ("1990年4月", profile['established'].replace("10日", "").rstrip("日")),
                 ("1月末", profile['settlement'].replace("日", "")),
-                # 権利行使価格 = 株価と同額
-                ("95円", f"{data['stock_price']}円"),
             ]
+
+            # CAPM計算式（個別値より先に置換）
+            if all([risk_free_rate, market_risk_premium, beta_val, credit_cost]):
+                rfr = float(risk_free_rate)
+                mrp = float(market_risk_premium)
+                b = float(beta_val)
+                cc = float(credit_cost)
+                capm_total = rfr + mrp * b + cc
+                replacements.append(
+                    ("1.591% + 9.3%× 0.567 + 21.83%",
+                     f"{risk_free_rate}% + {market_risk_premium}%× {beta_val} + {credit_cost}%"))
+                replacements.append(("28.69%", f"{capm_total:.2f}%"))
+
+            # CAPM各変数（テーブル内の個別セル）
+            if risk_free_rate:
+                replacements.append(("1.591%", f"{risk_free_rate}%"))
+            if market_risk_premium:
+                replacements.append(("9.3%", f"{market_risk_premium}%"))
+            if beta_val:
+                replacements.append(("0.567", beta_val))
+            if credit_cost:
+                replacements.append(("21.83%", f"{credit_cost}%"))
+
+            # 国債情報
+            if bond_maturity:
+                bm_dt = datetime.strptime(bond_maturity, "%Y-%m-%d")
+                replacements.append(("2031年3月20日", fmt_date_jp(bm_dt)))
+            if bond_name:
+                replacements.append(("長期国債362", bond_name))
+
+            # 権利行使期間
+            if exercise_start and exercise_end:
+                ex_start_dt = datetime.strptime(exercise_start, "%Y-%m-%d")
+                ex_end_dt = datetime.strptime(exercise_end, "%Y-%m-%d")
+                replacements.append(("2026年3月3日-", f"{fmt_date_jp(ex_start_dt)}-"))
+                replacements.append(("2026年3月4日", fmt_date_jp(ex_end_dt)))
+
+            # ●プレースホルダー（テーブル1）
+            if resolution_date:
+                res_dt = datetime.strptime(resolution_date, "%Y-%m-%d")
+                replacements.append(("2026年●月●日", fmt_date_jp(res_dt)))
+            if warrant_total:
+                replacements.append(("●個", f"{warrant_total}個"))
+            if issuable_shares:
+                replacements.append(("●株", f"{issuable_shares}株"))
+            # 行使による払込価額 = 株価と同額
+            replacements.append(("●円", f"{data['stock_price']}円"))
 
             # 公正価値 → 株価比率
             if fair_value_per_share is not None:
-                price_ratio_raw = fair_value_per_share / data['stock_price'] * 100
-                price_ratio = math.ceil(price_ratio_raw * 100) / 100
-                replacements.append(("51.04円/株", f"{fair_value_per_share}円/株"))
-                replacements.append(("23.20%", f"{price_ratio:.2f}%"))
+                price_ratio = round(fair_value_per_share / data['stock_price'] * 100, 2)
+                fair_value_per_unit = round(fair_value_per_share * 100)
+                replacements.append(("公正価値113円", f"公正価値{fair_value_per_unit:,}円"))
+                replacements.append(("1.13円/株", f"{fair_value_per_share}円/株"))
+                replacements.append(("当初株価の1.03%", f"当初株価の{price_ratio:.2f}%"))
 
             for old, new in replacements:
                 replace_in_document(doc, old, new)

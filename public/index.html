@@ -176,6 +176,42 @@
 
     <hr class="separator">
 
+    <div class="row">
+      <div>
+        <label for="riskFreeRate">リスクフリーレート（%）</label>
+        <input type="text" id="riskFreeRate">
+      </div>
+      <div>
+        <label for="marketRiskPremium">市場リスクプレミアム（%）</label>
+        <input type="text" id="marketRiskPremium">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="beta">対指数β</label>
+        <input type="text" id="beta">
+      </div>
+      <div>
+        <label for="creditCost">クレジット・コスト（%）</label>
+        <input type="text" id="creditCost">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="bondName">国債銘柄名</label>
+        <p class="hint">例: 長期国債362</p>
+        <input type="text" id="bondName">
+      </div>
+      <div>
+        <label for="bondMaturity">国債償還日</label>
+        <input type="date" id="bondMaturity">
+      </div>
+    </div>
+
+    <hr class="separator">
+
     <label for="monthlyFile">月次株価データ（ボラティリティ計算用）</label>
     <p class="hint">SPEEDAからエクスポートした月次株価Excel</p>
     <input type="file" id="monthlyFile" accept=".xlsx,.xls,.csv">
@@ -254,6 +290,12 @@
         issuable_shares: document.getElementById('issuableShares').value.trim(),
         fair_value_per_share: document.getElementById('fairValue').value.trim(),
         special_terms: document.getElementById('specialTerms').value.trim(),
+        risk_free_rate: document.getElementById('riskFreeRate').value.trim(),
+        market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
+        beta: document.getElementById('beta').value.trim(),
+        credit_cost: document.getElementById('creditCost').value.trim(),
+        bond_name: document.getElementById('bondName').value.trim(),
+        bond_maturity: document.getElementById('bondMaturity').value,
       };
 
       btn.disabled = true;
