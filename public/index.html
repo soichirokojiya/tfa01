@@ -717,13 +717,24 @@
           buildBondBlob().catch(() => null),
         ]);
 
-        // Excelが1つ以上あればZIPにまとめてダウンロード
-        const hasExcels = volBlob || volumeBlob || bondBlob;
-        if (hasExcels) {
+        // βスクリーンショット
+        let betaBlob = null;
+        const betaInput = document.getElementById('betaImage');
+        if (betaInput.files.length > 0) {
+          betaBlob = betaInput.files[0];
+        }
+
+        // 資料が1つ以上あればZIPにまとめてダウンロード
+        const hasFiles = volBlob || volumeBlob || bondBlob || betaBlob;
+        if (hasFiles) {
           const zip = new JSZip();
           if (volBlob) zip.file('ボラティリティ計算.xlsx', volBlob);
           if (volumeBlob) zip.file('出来高中央値.xlsx', volumeBlob);
           if (bondBlob) zip.file('売買参考統計値_ハイライト.xlsx', bondBlob);
+          if (betaBlob) {
+            const ext = betaBlob.name.split('.').pop() || 'png';
+            zip.file('β値スクリーンショット.' + ext, betaBlob);
+          }
           const zipBlob = await zip.generateAsync({ type: 'blob' });
           const companyName = document.getElementById('companyName').textContent || ticker;
           downloadBlob(zipBlob, companyName + '_算定資料.zip');
