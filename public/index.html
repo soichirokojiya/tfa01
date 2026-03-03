@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>新株予約権評価報告書 生成ツール</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -268,12 +269,21 @@
       }
     });
 
-    // ── ボラティリティ計算Excel生成（サーバーサイド） ──
-    async function generateVolatilityExcel() {
+    // ── ボラティリティ計算Excel Blob生成（サーバーサイド） ──
+    async function buildVolatilityBlob() {
       const fileInput = document.getElementById('monthlyFile');
+      if (fileInput.files.length === 0) return null;
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      const res = await fetch('/api/volatility', { method: 'POST', body: formData });
+      if (!res.ok) throw new Error('ボラティリティ計算エラー');
+      return await res.blob();
+    }
+
+    async function generateVolatilityExcel() {
       const btn = document.getElementById('volBtn');
       const status = document.getElementById('status');
-      if (fileInput.files.length === 0) {
+      if (document.getElementById('monthlyFile').files.length === 0) {
         status.className = 'status error';
         status.textContent = '月次株価データファイルを選択してください。';
         return;
@@ -282,20 +292,7 @@
       status.className = 'status loading';
       status.innerHTML = '<span class="spinner"></span>ボラティリティ計算Excel生成中...';
       try {
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-        const res = await fetch('/api/volatility', { method: 'POST', body: formData });
-        if (!res.ok) {
-          let msg = 'サーバーエラー';
-          try { const err = await res.json(); msg = err.error || msg; } catch { msg = await res.text() || msg; }
-          throw new Error(msg);
-        }
-        const blob = await res.blob();
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'ボラティリティ計算.xlsx';
-        a.click();
-        URL.revokeObjectURL(a.href);
+        downloadBlob(await buildVolatilityBlob(), 'ボラティリティ計算.xlsx');
         status.className = 'status success';
         status.textContent = 'ボラティリティ計算Excelをダウンロードしました。';
       } catch (e) {
@@ -306,12 +303,95 @@
       }
     }
 
-    // ── 出来高中央値Excel生成（クライアントサイド） ──
-    async function generateVolumeExcel() {
+    // ── 出来高中央値Excel Blob生成（クライアントサイド） ──
+    async function buildVolumeBlob() {
       const fileInput = document.getElementById('dailyFile');
+      if (fileInput.files.length === 0) return null;
+      const fileData = await fileInput.files[0].arrayBuffer();
+      const wb = XLSX.read(fileData, { type: 'array', cellStyles: true });
+      const wsName = wb.SheetNames[0];
+      const ws = wb.Sheets[wsName];
+      const range = XLSX.utils.decode_range(ws['!ref']);
+
+      let volCol = -1, dateCol = 0, dataStartRow = -1;
+      for (let r = range.s.r; r <= Math.min(range.s.r + 10, range.e.r); r++) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const cell = ws[XLSX.utils.encode_cell({r, c})];
+          if (!cell) continue;
+          const val = String(cell.v || '').trim();
+          if (val.includes('出来高') || val.includes('売買高') || val.includes('Volume')) volCol = c;
+          if (val === '日付' || val === 'Date') dateCol = c;
+        }
+      }
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        const cell = ws[XLSX.utils.encode_cell({r, c: dateCol})];
+        if (cell && typeof cell.v === 'number' && cell.v > 30000) { dataStartRow = r; break; }
+      }
+      if (dataStartRow === -1) {
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          const vc = volCol >= 0 ? volCol : range.e.c;
+          const cell = ws[XLSX.utils.encode_cell({r, c: vc})];
+          if (cell && typeof cell.v === 'number') { dataStartRow = r; break; }
+        }
+      }
+      if (volCol === -1) {
+        for (let c = range.e.c; c >= range.s.c; c--) {
+          const cell = ws[XLSX.utils.encode_cell({r: dataStartRow, c})];
+          if (cell && typeof cell.v === 'number') { volCol = c; break; }
+        }
+      }
+      if (volCol === -1 || dataStartRow === -1) throw new Error('出来高データ列が見つかりません');
+
+      const volumes = [];
+      let minDate = null, maxDate = null;
+      for (let r = dataStartRow; r <= range.e.r; r++) {
+        const vCell = ws[XLSX.utils.encode_cell({r, c: volCol})];
+        if (vCell && typeof vCell.v === 'number' && vCell.v > 0) volumes.push(vCell.v);
+        const dCell = ws[XLSX.utils.encode_cell({r, c: dateCol})];
+        if (dCell) {
+          let d;
+          if (typeof dCell.v === 'number') d = new Date((dCell.v - 25569) * 86400000);
+          else if (dCell.v) d = new Date(String(dCell.v).replace(/\//g, '-'));
+          if (d && !isNaN(d.getTime())) {
+            if (!minDate || d < minDate) minDate = d;
+            if (!maxDate || d > maxDate) maxDate = d;
+          }
+        }
+      }
+      if (volumes.length === 0) throw new Error('出来高データが見つかりません');
+
+      const sorted = [...volumes].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      const fmtDate = (d) => d ? d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0') : '';
+      const periodStr = minDate && maxDate ? fmtDate(minDate) + '〜' + fmtDate(maxDate) : '';
+
+      // 元データを2行下にシフト
+      for (let r = range.e.r; r >= range.s.r; r--) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const oldAddr = XLSX.utils.encode_cell({r, c});
+          const newAddr = XLSX.utils.encode_cell({r: r + 2, c});
+          if (ws[oldAddr]) { ws[newAddr] = ws[oldAddr]; delete ws[oldAddr]; }
+        }
+      }
+      ws['A1'] = { v: '日次売買高の中央値', t: 's', s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } } };
+      ws['B1'] = { v: Math.round(median), t: 'n', s: { font: { bold: true, sz: 14, name: 'ＭＳ Ｐゴシック' }, fill: { fgColor: { rgb: 'FFFF00' } }, numFmt: '#,##0' } };
+      ws['C1'] = { v: '株', t: 's', s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } } };
+      ws['A2'] = { v: '対象期間: ' + periodStr, t: 's', s: { font: { sz: 10, name: 'ＭＳ Ｐゴシック', color: { rgb: '666666' } } } };
+
+      const medianRow = range.e.r + 4;
+      ws[XLSX.utils.encode_cell({r: medianRow, c: 0})] = { v: '中央値', t: 's', s: { font: { bold: true } } };
+      ws[XLSX.utils.encode_cell({r: medianRow, c: volCol})] = { v: Math.round(median), t: 'n', s: { font: { bold: true }, fill: { fgColor: { rgb: 'FFF2CC' } }, numFmt: '#,##0' } };
+      ws['!ref'] = XLSX.utils.encode_range({r: 0, c: range.s.c}, {r: medianRow, c: range.e.c});
+
+      const outBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      return new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    }
+
+    async function generateVolumeExcel() {
       const btn = document.getElementById('volMedianBtn');
       const status = document.getElementById('status');
-      if (fileInput.files.length === 0) {
+      if (document.getElementById('dailyFile').files.length === 0) {
         status.className = 'status error';
         status.textContent = '日次株価・出来高データファイルを選択してください。';
         return;
@@ -320,162 +400,9 @@
       status.className = 'status loading';
       status.innerHTML = '<span class="spinner"></span>出来高中央値Excel生成中...';
       try {
-        const fileData = await fileInput.files[0].arrayBuffer();
-        const wb = XLSX.read(fileData, { type: 'array', cellStyles: true });
-        const wsName = wb.SheetNames[0];
-        const ws = wb.Sheets[wsName];
-        const range = XLSX.utils.decode_range(ws['!ref']);
-
-        // SPEEDAフォーマット: 複数ヘッダー行あり（企業名、項目、単位、日付ラベル等）
-        // 全行を走査して出来高列と日付列を特定
-        let volCol = -1;
-        let dateCol = 0;
-        let dataStartRow = -1;
-        // 全ヘッダー行から出来高・日付列を探す
-        for (let r = range.s.r; r <= Math.min(range.s.r + 10, range.e.r); r++) {
-          for (let c = range.s.c; c <= range.e.c; c++) {
-            const cell = ws[XLSX.utils.encode_cell({r, c})];
-            if (!cell) continue;
-            const val = String(cell.v || '').trim();
-            if (val.includes('出来高') || val.includes('売買高') || val.includes('Volume')) {
-              volCol = c;
-            }
-            if (val === '日付' || val === 'Date') {
-              dateCol = c;
-            }
-          }
-        }
-        // データ開始行を特定（A列が日付型の最初の行）
-        for (let r = range.s.r; r <= range.e.r; r++) {
-          const cell = ws[XLSX.utils.encode_cell({r, c: dateCol})];
-          if (cell && typeof cell.v === 'number' && cell.v > 30000) { // Excelシリアル日付
-            dataStartRow = r;
-            break;
-          }
-        }
-        if (dataStartRow === -1) {
-          // 日付列がシリアル値でない場合、出来高列が数値の最初の行を探す
-          for (let r = range.s.r; r <= range.e.r; r++) {
-            const vc = volCol >= 0 ? volCol : range.e.c;
-            const cell = ws[XLSX.utils.encode_cell({r, c: vc})];
-            if (cell && typeof cell.v === 'number') {
-              dataStartRow = r;
-              break;
-            }
-          }
-        }
-        // 出来高列が見つからなければ最後の数値列を使う
-        if (volCol === -1) {
-          for (let c = range.e.c; c >= range.s.c; c--) {
-            const cell = ws[XLSX.utils.encode_cell({r: dataStartRow, c})];
-            if (cell && typeof cell.v === 'number') {
-              volCol = c;
-              break;
-            }
-          }
-        }
-        if (volCol === -1 || dataStartRow === -1) throw new Error('出来高データ列が見つかりません');
-
-        // 日付範囲と出来高値を収集
-        const volumes = [];
-        let minDate = null, maxDate = null;
-        for (let r = dataStartRow; r <= range.e.r; r++) {
-          const vCell = ws[XLSX.utils.encode_cell({r, c: volCol})];
-          if (vCell && typeof vCell.v === 'number' && vCell.v > 0) {
-            volumes.push(vCell.v);
-          }
-          const dCell = ws[XLSX.utils.encode_cell({r, c: dateCol})];
-          if (dCell) {
-            let d;
-            if (typeof dCell.v === 'number') {
-              d = new Date((dCell.v - 25569) * 86400000);
-            } else if (dCell.v) {
-              d = new Date(String(dCell.v).replace(/\//g, '-'));
-            }
-            if (d && !isNaN(d.getTime())) {
-              if (!minDate || d < minDate) minDate = d;
-              if (!maxDate || d > maxDate) maxDate = d;
-            }
-          }
-        }
-
-        if (volumes.length === 0) throw new Error('出来高データが見つかりません');
-
-        // 中央値計算
-        const sorted = [...volumes].sort((a, b) => a - b);
-        const mid = Math.floor(sorted.length / 2);
-        const median = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-
-        // 日付範囲文字列
-        const fmtDate = (d) => d ? d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0') : '';
-        const periodStr = minDate && maxDate ? fmtDate(minDate) + '〜' + fmtDate(maxDate) : '';
-
-        // 元データを2行下にシフト
-        const newRange = {
-          s: { r: range.s.r, c: range.s.c },
-          e: { r: range.e.r + 2, c: range.e.c }
-        };
-        for (let r = range.e.r; r >= range.s.r; r--) {
-          for (let c = range.s.c; c <= range.e.c; c++) {
-            const oldAddr = XLSX.utils.encode_cell({r, c});
-            const newAddr = XLSX.utils.encode_cell({r: r + 2, c});
-            if (ws[oldAddr]) {
-              ws[newAddr] = ws[oldAddr];
-              delete ws[oldAddr];
-            }
-          }
-        }
-
-        // A1: ラベル
-        ws['A1'] = {
-          v: '日次売買高の中央値',
-          t: 's',
-          s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } }
-        };
-        // B1: 中央値（目立つ表示）
-        ws['B1'] = {
-          v: Math.round(median),
-          t: 'n',
-          s: {
-            font: { bold: true, sz: 14, name: 'ＭＳ Ｐゴシック' },
-            fill: { fgColor: { rgb: 'FFFF00' } },
-            numFmt: '#,##0',
-          }
-        };
-        // C1: 「株」
-        ws['C1'] = {
-          v: '株',
-          t: 's',
-          s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } }
-        };
-        // A2: 対象期間
-        ws['A2'] = {
-          v: '対象期間: ' + periodStr,
-          t: 's',
-          s: { font: { sz: 10, name: 'ＭＳ Ｐゴシック', color: { rgb: '666666' } } }
-        };
-
-        // 元データの下にMEDIAN数式行も追加
-        const dataLastRow = range.e.r + 2;
-        const medianRow = dataLastRow + 2;
-        ws[XLSX.utils.encode_cell({r: medianRow, c: 0})] = { v: '中央値', t: 's', s: { font: { bold: true } } };
-        ws[XLSX.utils.encode_cell({r: medianRow, c: volCol})] = {
-          v: Math.round(median),
-          t: 'n',
-          s: { font: { bold: true }, fill: { fgColor: { rgb: 'FFF2CC' } }, numFmt: '#,##0' }
-        };
-
-        ws['!ref'] = XLSX.utils.encode_range(newRange.s, {r: medianRow, c: range.e.c});
-
-        const outBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        const blob = new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = '出来高中央値.xlsx';
-        a.click();
-        URL.revokeObjectURL(a.href);
+        downloadBlob(await buildVolumeBlob(), '出来高中央値.xlsx');
         status.className = 'status success';
-        status.textContent = '出来高中央値Excelをダウンロードしました。（中央値: ' + Math.round(median).toLocaleString() + '株）';
+        status.textContent = '出来高中央値Excelをダウンロードしました。';
       } catch (e) {
         status.className = 'status error';
         status.textContent = 'エラー: ' + e.message;
@@ -484,18 +411,60 @@
       }
     }
 
-    // ── 売買参考統計値 国債ハイライトExcel生成（クライアントサイド） ──
-    async function generateBondExcel() {
+    // ── 売買参考統計値 国債ハイライトExcel Blob生成（クライアントサイド） ──
+    async function buildBondBlob() {
       const fileInput = document.getElementById('bondFile');
       const exerciseEnd = document.getElementById('exerciseEnd').value;
+      if (fileInput.files.length === 0 || !exerciseEnd) return null;
+      const fileData = await fileInput.files[0].arrayBuffer();
+      const wb = XLSX.read(fileData, { type: 'array', cellStyles: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const targetDate = new Date(exerciseEnd);
+      const range = XLSX.utils.decode_range(ws['!ref']);
+
+      let closestRow = -1, minDiff = Infinity;
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        const nameCell = ws[XLSX.utils.encode_cell({r, c: 2})];
+        if (!nameCell) continue;
+        const name = String(nameCell.v || '').trim();
+        if (!name.startsWith('長期国債') || name.includes('超長期') || name.includes('WI')) continue;
+        const matCell = ws[XLSX.utils.encode_cell({r, c: 3})];
+        const yieldCell = ws[XLSX.utils.encode_cell({r, c: 11})];
+        if (!matCell || !yieldCell) continue;
+        let matDate;
+        if (typeof matCell.v === 'number') matDate = new Date((matCell.v - 25569) * 86400000);
+        else matDate = new Date(String(matCell.v).replace(/\//g, '-'));
+        if (isNaN(matDate.getTime())) continue;
+        const diff = Math.abs(matDate - targetDate);
+        if (diff < minDiff) { minDiff = diff; closestRow = r; }
+      }
+
+      if (closestRow >= 0) {
+        const yellowFill = { fgColor: { rgb: 'FFFF00' } };
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const addr = XLSX.utils.encode_cell({r: closestRow, c});
+          if (ws[addr]) {
+            if (!ws[addr].s) ws[addr].s = {};
+            ws[addr].s.fill = yellowFill;
+          } else {
+            ws[addr] = { v: '', t: 's', s: { fill: yellowFill } };
+          }
+        }
+      }
+
+      const outBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      return new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    }
+
+    async function generateBondExcel() {
       const btn = document.getElementById('bondBtn');
       const status = document.getElementById('status');
-      if (fileInput.files.length === 0) {
+      if (document.getElementById('bondFile').files.length === 0) {
         status.className = 'status error';
         status.textContent = '売買参考統計値ファイルを選択してください。';
         return;
       }
-      if (!exerciseEnd) {
+      if (!document.getElementById('exerciseEnd').value) {
         status.className = 'status error';
         status.textContent = '権利行使期間（終了）を入力してください。';
         return;
@@ -504,69 +473,9 @@
       status.className = 'status loading';
       status.innerHTML = '<span class="spinner"></span>国債ハイライトExcel生成中...';
       try {
-        const fileData = await fileInput.files[0].arrayBuffer();
-        const wb = XLSX.read(fileData, { type: 'array', cellStyles: true });
-        const wsName = wb.SheetNames[0];
-        const ws = wb.Sheets[wsName];
-        const targetDate = new Date(exerciseEnd);
-        const range = XLSX.utils.decode_range(ws['!ref']);
-
-        let closestRow = -1;
-        let minDiff = Infinity;
-        let matchedName = '';
-        let matchedYield = '';
-        let matchedMaturity = '';
-
-        for (let r = range.s.r; r <= range.e.r; r++) {
-          const nameCell = ws[XLSX.utils.encode_cell({r, c: 2})];
-          if (!nameCell) continue;
-          const name = String(nameCell.v || '').trim();
-          if (!name.startsWith('長期国債') || name.includes('超長期') || name.includes('WI')) continue;
-          const matCell = ws[XLSX.utils.encode_cell({r, c: 3})];
-          const yieldCell = ws[XLSX.utils.encode_cell({r, c: 11})];
-          if (!matCell || !yieldCell) continue;
-          let matDate;
-          if (typeof matCell.v === 'number') {
-            matDate = new Date((matCell.v - 25569) * 86400000);
-          } else {
-            matDate = new Date(String(matCell.v).replace(/\//g, '-'));
-          }
-          if (isNaN(matDate.getTime())) continue;
-          const diff = Math.abs(matDate - targetDate);
-          if (diff < minDiff) {
-            minDiff = diff;
-            closestRow = r;
-            matchedName = name.replace(/\s+/g, '').replace(/\u3000/g, '');
-            matchedYield = String(yieldCell.v);
-            matchedMaturity = matDate.toISOString().split('T')[0];
-          }
-        }
-
-        // マッチした行を黄色ハイライト
-        if (closestRow >= 0) {
-          const yellowFill = { fgColor: { rgb: 'FFFF00' } };
-          for (let c = range.s.c; c <= range.e.c; c++) {
-            const addr = XLSX.utils.encode_cell({r: closestRow, c});
-            if (ws[addr]) {
-              if (!ws[addr].s) ws[addr].s = {};
-              ws[addr].s.fill = yellowFill;
-            } else {
-              ws[addr] = { v: '', t: 's', s: { fill: yellowFill } };
-            }
-          }
-        }
-
-        const outBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        const blob = new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = '売買参考統計値_ハイライト.xlsx';
-        a.click();
-        URL.revokeObjectURL(a.href);
+        downloadBlob(await buildBondBlob(), '売買参考統計値_ハイライト.xlsx');
         status.className = 'status success';
-        status.textContent = closestRow >= 0
-          ? '国債ハイライトExcelをダウンロードしました。（' + matchedName + ' / 利回り ' + matchedYield + '%）'
-          : '長期国債が見つかりませんでした。元のファイルをダウンロードしました。';
+        status.textContent = '国債ハイライトExcelをダウンロードしました。';
       } catch (e) {
         status.className = 'status error';
         status.textContent = 'エラー: ' + e.message;
@@ -597,11 +506,8 @@
           const yieldCell = ws[XLSX.utils.encode_cell({r, c: 11})];
           if (!matCell || !yieldCell) continue;
           let matDate;
-          if (typeof matCell.v === 'number') {
-            matDate = new Date((matCell.v - 25569) * 86400000);
-          } else {
-            matDate = new Date(String(matCell.v).replace(/\//g, '-'));
-          }
+          if (typeof matCell.v === 'number') matDate = new Date((matCell.v - 25569) * 86400000);
+          else matDate = new Date(String(matCell.v).replace(/\//g, '-'));
           if (isNaN(matDate.getTime())) continue;
           const diff = Math.abs(matDate - targetDate);
           if (diff < minDiff) {
@@ -679,52 +585,36 @@
           throw new Error(msg);
         }
 
-        const blob = await res.blob();
+        const docxBlob = await res.blob();
         const disposition = res.headers.get('Content-Disposition') || '';
-        let filename = '報告書_' + ticker + '.docx';
+        let docxFilename = '報告書_' + ticker + '.docx';
         const match = disposition.match(/filename\*=UTF-8''(.+)/);
-        if (match) filename = decodeURIComponent(match[1]);
-        downloadBlob(blob, filename);
+        if (match) docxFilename = decodeURIComponent(match[1]);
 
-        // アップロード済みExcelファイルも同時にダウンロード
-        const downloads = [];
+        // Excel Blobを並行生成
+        const [volBlob, volumeBlob, bondBlob] = await Promise.all([
+          buildVolatilityBlob().catch(() => null),
+          buildVolumeBlob().catch(() => null),
+          buildBondBlob().catch(() => null),
+        ]);
 
-        // ボラティリティ計算Excel
-        const monthlyInput = document.getElementById('monthlyFile');
-        if (monthlyInput.files.length > 0) {
-          downloads.push((async () => {
-            try {
-              const formData = new FormData();
-              formData.append('file', monthlyInput.files[0]);
-              const vRes = await fetch('/api/volatility', { method: 'POST', body: formData });
-              if (vRes.ok) {
-                const vBlob = await vRes.blob();
-                downloadBlob(vBlob, 'ボラティリティ計算.xlsx');
-              }
-            } catch (e) { console.error('Volatility Excel error:', e); }
-          })());
+        // Excelが1つ以上あればZIPにまとめてダウンロード
+        const hasExcels = volBlob || volumeBlob || bondBlob;
+        if (hasExcels) {
+          const zip = new JSZip();
+          if (volBlob) zip.file('ボラティリティ計算.xlsx', volBlob);
+          if (volumeBlob) zip.file('出来高中央値.xlsx', volumeBlob);
+          if (bondBlob) zip.file('売買参考統計値_ハイライト.xlsx', bondBlob);
+          const zipBlob = await zip.generateAsync({ type: 'blob' });
+          const companyName = document.getElementById('companyName').textContent || ticker;
+          downloadBlob(zipBlob, companyName + '_算定資料.zip');
         }
 
-        // 出来高中央値Excel
-        const dailyInput = document.getElementById('dailyFile');
-        if (dailyInput.files.length > 0) {
-          downloads.push((async () => {
-            try { await generateVolumeExcel(); } catch (e) { console.error('Volume Excel error:', e); }
-          })());
-        }
-
-        // 国債ハイライトExcel
-        const bondInput = document.getElementById('bondFile');
-        if (bondInput.files.length > 0 && exerciseEnd) {
-          downloads.push((async () => {
-            try { await generateBondExcel(); } catch (e) { console.error('Bond Excel error:', e); }
-          })());
-        }
-
-        await Promise.all(downloads);
+        // 報告書docxをダウンロード
+        downloadBlob(docxBlob, docxFilename);
 
         status.className = 'status success';
-        status.textContent = filename + ' をダウンロードしました。';
+        status.textContent = docxFilename + (hasExcels ? ' + 算定資料ZIP' : '') + ' をダウンロードしました。';
       } catch (e) {
         status.className = 'status error';
         status.textContent = 'エラー: ' + e.message;
