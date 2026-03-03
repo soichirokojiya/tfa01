@@ -6,12 +6,18 @@
       "config": { "maxDuration": 60 }
     },
     {
+      "src": "api/lookup.py",
+      "use": "@vercel/python",
+      "config": { "maxDuration": 15 }
+    },
+    {
       "src": "public/**",
       "use": "@vercel/static"
     }
   ],
   "routes": [
     { "src": "/api/generate", "dest": "/api/generate.py" },
+    { "src": "/api/lookup", "dest": "/api/lookup.py" },
     { "src": "/(.*)", "dest": "/public/$1" }
   ]
 }
