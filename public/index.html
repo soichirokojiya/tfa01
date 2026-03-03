@@ -225,9 +225,14 @@
       <button class="btn-dl" onclick="generateBondExcel()" id="bondBtn">国債ハイライトExcel生成</button>
     </div>
 
-    <label for="betaValue">対指数β</label>
-    <p class="hint">SPEEDAの日次β値を入力</p>
-    <input type="text" id="betaValue" placeholder="例: 0.567">
+    <label>対指数β（スクリーンショット）</label>
+    <p class="hint">SPEEDAのβ値画面のスクリーンショットをアップロード → AI で自動抽出</p>
+    <div class="file-row">
+      <input type="file" id="betaImage" accept="image/*">
+      <button class="btn-dl" onclick="extractBeta()" id="betaBtn">β値抽出</button>
+    </div>
+    <div id="betaResult" style="font-size:13px;color:#2a7d2a;margin-bottom:16px;display:none;"></div>
+    <input type="hidden" id="betaValue" value="">
 
     <button id="generateBtn" onclick="generate()">報告書を生成</button>
 
@@ -282,6 +287,42 @@
         el.className = 'company-name';
       }
     });
+
+    // ── β値スクリーンショットからAI抽出 ──
+    async function extractBeta() {
+      const btn = document.getElementById('betaBtn');
+      const status = document.getElementById('status');
+      const resultEl = document.getElementById('betaResult');
+      const fileInput = document.getElementById('betaImage');
+      if (fileInput.files.length === 0) {
+        status.className = 'status error';
+        status.textContent = 'β値のスクリーンショットを選択してください。';
+        return;
+      }
+      btn.disabled = true;
+      status.className = 'status loading';
+      status.innerHTML = '<span class="spinner"></span>β値をAIで抽出中...';
+      try {
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        const res = await fetch('/api/extract-beta', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'β値抽出エラー');
+        }
+        const data = await res.json();
+        document.getElementById('betaValue').value = String(data.beta);
+        resultEl.textContent = '抽出されたβ値: ' + data.beta;
+        resultEl.style.display = 'block';
+        status.className = 'status success';
+        status.textContent = 'β値を抽出しました: ' + data.beta;
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = 'エラー: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
     // ── SPEEDAデータからボラティリティを計算 ──
     function computeVolatilityFromSpeeda(fileData) {
