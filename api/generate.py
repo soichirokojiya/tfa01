@@ -7,6 +7,7 @@ import json
 import os
 import re
 import math
+import base64
 import urllib.request
 import urllib.parse
 import tempfile
@@ -19,6 +20,7 @@ from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 import yfinance as yf
 import numpy as np
+import xlrd
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -128,6 +130,34 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
     }
 
 
+def extract_bond_info(file_bytes, exercise_end_date):
+    """売買参考統計値から権利行使期間終了日に最も近い長期国債を抽出"""
+    wb = xlrd.open_workbook(file_contents=file_bytes)
+    ws = wb.sheet_by_index(0)
+
+    bonds = []
+    for r in range(ws.nrows):
+        name = str(ws.cell_value(r, 2)).strip()
+        if name.startswith("長期国債") and "超長期" not in name and "WI" not in name:
+            maturity_str = str(ws.cell_value(r, 3)).strip()
+            yield_val = ws.cell_value(r, 11)
+            try:
+                maturity_dt = datetime.strptime(maturity_str, "%Y/%m/%d")
+                bonds.append({
+                    "name": name.replace(" ", "").replace("\u3000", ""),
+                    "maturity": maturity_dt,
+                    "yield": float(yield_val),
+                })
+            except (ValueError, TypeError):
+                continue
+
+    if not bonds:
+        return None
+
+    closest = min(bonds, key=lambda b: abs((b["maturity"] - exercise_end_date).days))
+    return closest
+
+
 # ──────────────────────────────────────────────
 # docx 操作
 # ──────────────────────────────────────────────
@@ -218,6 +248,7 @@ class handler(BaseHTTPRequestHandler):
             special_terms = body.get("special_terms", "")
             market_risk_premium = body.get("market_risk_premium", "")
             beta_val = body.get("beta", "")
+            bond_file_data = body.get("bond_file_data", "")
 
             fair_value_per_share = float(fair_value_str) if fair_value_str else None
 
@@ -251,6 +282,16 @@ class handler(BaseHTTPRequestHandler):
                 ("1990年4月", profile['established'].replace("10日", "").rstrip("日")),
                 ("1月末", profile['settlement'].replace("日", "")),
             ]
+
+            # 売買参考統計値から国債情報を抽出
+            if bond_file_data and exercise_end:
+                file_bytes = base64.b64decode(bond_file_data)
+                ex_end_for_bond = datetime.strptime(exercise_end, "%Y-%m-%d")
+                bond_info = extract_bond_info(file_bytes, ex_end_for_bond)
+                if bond_info:
+                    replacements.append(("長期国債362", bond_info["name"]))
+                    replacements.append(("2031年3月20日", fmt_date_jp(bond_info["maturity"])))
+                    replacements.append(("1.591%", f"{bond_info['yield']}%"))
 
             # CAPM各変数（テーブル内の個別セル）
             if market_risk_premium:

@@ -257,6 +257,19 @@
         return;
       }
 
+      // ファイルをbase64で読み込む
+      async function readFileAsBase64(inputId) {
+        const input = document.getElementById(inputId);
+        if (!input.files.length) return null;
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.readAsDataURL(input.files[0]);
+        });
+      }
+
+      const bondFileData = await readFileAsBase64('bondFile');
+
       const payload = {
         ticker_code: ticker,
         eval_date: evalDate,
@@ -269,6 +282,7 @@
         special_terms: document.getElementById('specialTerms').value.trim(),
         market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
         beta: document.getElementById('beta').value.trim(),
+        bond_file_data: bondFileData,
       };
 
       btn.disabled = true;
