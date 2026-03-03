@@ -279,6 +279,9 @@ class handler(BaseHTTPRequestHandler):
             volatility_override = body.get("volatility", "")
             vol_start_override = body.get("vol_start_label", "")
             vol_end_override = body.get("vol_end_label", "")
+            median_volume_override = body.get("median_volume", "")
+            volume_start_override = body.get("volume_start", "")
+            volume_end_override = body.get("volume_end", "")
 
             fair_value_per_share = float(fair_value_str) if fair_value_str else None
 
@@ -291,10 +294,25 @@ class handler(BaseHTTPRequestHandler):
             doc = Document(TEMPLATE_PATH)
 
             # 置換
-            # SPEEDAデータからのボラティリティ上書き
+            # SPEEDAデータからの上書き
             vol_pct = float(volatility_override) if volatility_override else data['volatility']
             vol_start_lbl = vol_start_override if vol_start_override else data['vol_start_label']
             vol_end_lbl = vol_end_override if vol_end_override else data['vol_end_label']
+
+            # 出来高: SPEEDAデータ優先
+            if median_volume_override:
+                median_vol = int(median_volume_override)
+                liquidity = math.ceil(median_vol * 0.1)
+            else:
+                median_vol = data['median_daily_volume']
+                liquidity = data['liquidity_shares']
+
+            if volume_start_override and volume_end_override:
+                vol_s_dt = datetime.strptime(volume_start_override, "%Y-%m-%d")
+                vol_e_dt = datetime.strptime(volume_end_override, "%Y-%m-%d")
+                volume_period = f"{fmt_date_jp(vol_s_dt)}から{fmt_date_jp(vol_e_dt)}"
+            else:
+                volume_period = f"{fmt_date_jp(data['volume_start_date'])}から{fmt_date_jp(data['volume_end_date'])}"
 
             replacements = [
                 ("ジェリービーンズグループ", company_name_jp),
@@ -303,10 +321,9 @@ class handler(BaseHTTPRequestHandler):
                 ("62.54%", f"{vol_pct}%"),
                 ("2021年2月- 2026年2月",
                  f"{vol_start_lbl}- {vol_end_lbl}"),
-                ("2021年3月3日から2026年3月2日",
-                 f"{fmt_date_jp(data['volume_start_date'])}から{fmt_date_jp(data['volume_end_date'])}"),
-                ("1,483,123", f"{data['median_daily_volume']:,}"),
-                ("148,313", f"{data['liquidity_shares']:,}"),
+                ("2021年3月3日から2026年3月2日", volume_period),
+                ("1,483,123", f"{median_vol:,}"),
+                ("148,313", f"{liquidity:,}"),
                 ("0%（0円/株）",
                  f"{data['dividend_yield']}%（{data['dividend_per_share']}円/株）"),
                 ("2026年3月2日", fmt_date_jp(eval_dt)),

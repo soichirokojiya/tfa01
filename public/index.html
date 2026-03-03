@@ -374,6 +374,70 @@
       return { volatility: Math.round(annualVol * 100) / 100, startLabel, endLabel };
     }
 
+    // ── SPEEDA日次データから出来高統計を抽出 ──
+    function extractVolumeStats(fileData) {
+      const wb = XLSX.read(fileData, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const range = XLSX.utils.decode_range(ws['!ref']);
+
+      let volCol = -1, dateCol = 0, dataStartRow = -1;
+      for (let r = range.s.r; r <= Math.min(range.s.r + 10, range.e.r); r++) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const cell = ws[XLSX.utils.encode_cell({r, c})];
+          if (!cell) continue;
+          const val = String(cell.v || '').trim();
+          if (val.includes('出来高') || val.includes('売買高') || val.includes('Volume')) volCol = c;
+          if (val === '日付' || val === 'Date') dateCol = c;
+        }
+      }
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        const cell = ws[XLSX.utils.encode_cell({r, c: dateCol})];
+        if (cell && typeof cell.v === 'number' && cell.v > 30000) { dataStartRow = r; break; }
+      }
+      if (dataStartRow === -1) {
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          const vc = volCol >= 0 ? volCol : range.e.c;
+          const cell = ws[XLSX.utils.encode_cell({r, c: vc})];
+          if (cell && typeof cell.v === 'number') { dataStartRow = r; break; }
+        }
+      }
+      if (volCol === -1) {
+        for (let c = range.e.c; c >= range.s.c; c--) {
+          const cell = ws[XLSX.utils.encode_cell({r: dataStartRow, c})];
+          if (cell && typeof cell.v === 'number') { volCol = c; break; }
+        }
+      }
+      if (volCol === -1 || dataStartRow === -1) return null;
+
+      const volumes = [];
+      let minDate = null, maxDate = null;
+      for (let r = dataStartRow; r <= range.e.r; r++) {
+        const vCell = ws[XLSX.utils.encode_cell({r, c: volCol})];
+        if (vCell && typeof vCell.v === 'number' && vCell.v > 0) volumes.push(vCell.v);
+        const dCell = ws[XLSX.utils.encode_cell({r, c: dateCol})];
+        if (dCell) {
+          let d;
+          if (typeof dCell.v === 'number') d = new Date((dCell.v - 25569) * 86400000);
+          else if (dCell.v) d = new Date(String(dCell.v).replace(/\//g, '-'));
+          if (d && !isNaN(d.getTime())) {
+            if (!minDate || d < minDate) minDate = d;
+            if (!maxDate || d > maxDate) maxDate = d;
+          }
+        }
+      }
+      if (volumes.length === 0) return null;
+
+      const sorted = [...volumes].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      const median = sorted.length % 2 !== 0 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+      const fmtISO = (d) => d ? d.toISOString().split('T')[0] : '';
+      return {
+        median: median,
+        startDate: fmtISO(minDate),
+        endDate: fmtISO(maxDate),
+      };
+    }
+
     // ── ボラティリティ計算Excel Blob生成（サーバーサイド） ──
     async function buildVolatilityBlob() {
       const fileInput = document.getElementById('monthlyFile');
@@ -487,13 +551,13 @@
       const medianFormula = 'MEDIAN(' + volColLetter + shiftedStart + ':' + volColLetter + shiftedEnd + ')';
 
       ws['A1'] = { v: '日次売買高の中央値', t: 's', s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } } };
-      ws['B1'] = { t: 's', f: medianFormula, s: { font: { bold: true, sz: 14, name: 'ＭＳ Ｐゴシック' }, fill: { fgColor: { rgb: 'FFFF00' } }, z: '#,##0' } };
+      ws['B1'] = { t: 'n', f: medianFormula, s: { font: { bold: true, sz: 14, name: 'ＭＳ Ｐゴシック' }, fill: { fgColor: { rgb: 'FFFF00' } }, z: '#,##0' } };
       ws['C1'] = { v: '株', t: 's', s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } } };
       ws['A2'] = { v: '対象期間: ' + periodStr, t: 's', s: { font: { sz: 10, name: 'ＭＳ Ｐゴシック', color: { rgb: '666666' } } } };
 
       const medianRow = range.e.r + 4;
       ws[XLSX.utils.encode_cell({r: medianRow, c: 0})] = { v: '中央値', t: 's', s: { font: { bold: true } } };
-      ws[XLSX.utils.encode_cell({r: medianRow, c: volCol})] = { t: 's', f: medianFormula, s: { font: { bold: true }, fill: { fgColor: { rgb: 'FFF2CC' } }, z: '#,##0' } };
+      ws[XLSX.utils.encode_cell({r: medianRow, c: volCol})] = { t: 'n', f: medianFormula, s: { font: { bold: true }, fill: { fgColor: { rgb: 'FFF2CC' } }, z: '#,##0' } };
       ws['!ref'] = XLSX.utils.encode_range({r: 0, c: range.s.c}, {r: medianRow, c: range.e.c});
 
       const outBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
@@ -673,6 +737,15 @@
         } catch (e) { console.error('Volatility calc error:', e); }
       }
 
+      // SPEEDA日次データから出来高統計を抽出
+      let volumeData = null;
+      const dailyInput = document.getElementById('dailyFile');
+      if (dailyInput.files.length > 0) {
+        try {
+          volumeData = extractVolumeStats(await dailyInput.files[0].arrayBuffer());
+        } catch (e) { console.error('Volume stats error:', e); }
+      }
+
       const payload = {
         ticker_code: ticker,
         eval_date: evalDate,
@@ -691,6 +764,9 @@
         volatility: volData ? String(volData.volatility) : '',
         vol_start_label: volData ? volData.startLabel : '',
         vol_end_label: volData ? volData.endLabel : '',
+        median_volume: volumeData ? String(volumeData.median) : '',
+        volume_start: volumeData ? volumeData.startDate : '',
+        volume_end: volumeData ? volumeData.endDate : '',
       };
 
       btn.disabled = true;
