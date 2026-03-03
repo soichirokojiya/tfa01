@@ -247,7 +247,6 @@ class handler(BaseHTTPRequestHandler):
             fair_value_str = body.get("fair_value_per_share", "")
             special_terms = body.get("special_terms", "")
             market_risk_premium = body.get("market_risk_premium", "")
-            beta_val = body.get("beta", "")
             bond_file_data = body.get("bond_file_data", "")
 
             fair_value_per_share = float(fair_value_str) if fair_value_str else None
@@ -296,8 +295,6 @@ class handler(BaseHTTPRequestHandler):
             # CAPM各変数（テーブル内の個別セル）
             if market_risk_premium:
                 replacements.append(("9.3%", f"{market_risk_premium}%"))
-            if beta_val:
-                replacements.append(("0.567", beta_val))
 
             # 権利行使期間
             if exercise_start and exercise_end:
