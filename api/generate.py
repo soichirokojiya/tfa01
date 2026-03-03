@@ -49,6 +49,18 @@ def fetch_yahoo_quote_data(ticker_code: str) -> dict:
                 result["dividend_yield"] = round(float(yield_str), 2)
     except Exception:
         pass
+
+    # フォールバック: yfinance から発行済株式数を取得
+    if result["shares_outstanding"] == 0:
+        try:
+            ticker = yf.Ticker(f"{ticker_code}.T")
+            info = ticker.info
+            shares = info.get("sharesOutstanding", 0)
+            if shares:
+                result["shares_outstanding"] = int(shares)
+        except Exception:
+            pass
+
     return result
 
 
@@ -255,14 +267,18 @@ class handler(BaseHTTPRequestHandler):
             exercise_start = body.get("exercise_start", "")
             exercise_end = body.get("exercise_end", "")
             resolution_date = body.get("resolution_date", "")
-            warrant_total = body.get("warrant_total", "")
-            issuable_shares = body.get("issuable_shares", "")
+            warrant_total = body.get("warrant_total", "").replace(",", "")
+            issuable_shares = body.get("issuable_shares", "").replace(",", "")
             fair_value_str = body.get("fair_value_per_share", "")
             special_terms = body.get("special_terms", "")
             market_risk_premium = body.get("market_risk_premium", "")
             bond_name = body.get("bond_name", "")
             bond_maturity = body.get("bond_maturity", "")
             bond_yield = body.get("bond_yield", "")
+            beta_value = body.get("beta", "")
+            volatility_override = body.get("volatility", "")
+            vol_start_override = body.get("vol_start_label", "")
+            vol_end_override = body.get("vol_end_label", "")
 
             fair_value_per_share = float(fair_value_str) if fair_value_str else None
 
@@ -275,13 +291,18 @@ class handler(BaseHTTPRequestHandler):
             doc = Document(TEMPLATE_PATH)
 
             # 置換
+            # SPEEDAデータからのボラティリティ上書き
+            vol_pct = float(volatility_override) if volatility_override else data['volatility']
+            vol_start_lbl = vol_start_override if vol_start_override else data['vol_start_label']
+            vol_end_lbl = vol_end_override if vol_end_override else data['vol_end_label']
+
             replacements = [
                 ("ジェリービーンズグループ", company_name_jp),
                 ("3070", ticker_code),
-                ("110円", f"{data['stock_price']}円"),
-                ("62.54%", f"{data['volatility']}%"),
+                ("110円", f"{data['stock_price']:,}円"),
+                ("62.54%", f"{vol_pct}%"),
                 ("2021年2月- 2026年2月",
-                 f"{data['vol_start_label']}- {data['vol_end_label']}"),
+                 f"{vol_start_lbl}- {vol_end_lbl}"),
                 ("2021年3月3日から2026年3月2日",
                  f"{fmt_date_jp(data['volume_start_date'])}から{fmt_date_jp(data['volume_end_date'])}"),
                 ("1,483,123", f"{data['median_daily_volume']:,}"),
@@ -310,6 +331,10 @@ class handler(BaseHTTPRequestHandler):
             if market_risk_premium:
                 replacements.append(("9.3%", f"{market_risk_premium}%"))
 
+            # 対指数β
+            if beta_value:
+                replacements.append(("0.567", str(beta_value)))
+
             # 権利行使期間
             if exercise_start and exercise_end:
                 ex_start_dt = datetime.strptime(exercise_start, "%Y-%m-%d")
@@ -322,11 +347,11 @@ class handler(BaseHTTPRequestHandler):
                 res_dt = datetime.strptime(resolution_date, "%Y-%m-%d")
                 replacements.append(("2026年●月●日", fmt_date_jp(res_dt)))
             if warrant_total:
-                replacements.append(("●個", f"{warrant_total}個"))
+                replacements.append(("●個", f"{int(warrant_total):,}個"))
             if issuable_shares:
-                replacements.append(("●株", f"{issuable_shares}株"))
+                replacements.append(("●株", f"{int(issuable_shares):,}株"))
             # 行使による払込価額 = 株価と同額
-            replacements.append(("●円", f"{data['stock_price']}円"))
+            replacements.append(("●円", f"{data['stock_price']:,}円"))
 
             # 公正価値 → 株価比率
             if fair_value_per_share is not None:
@@ -338,6 +363,26 @@ class handler(BaseHTTPRequestHandler):
 
             for old, new in replacements:
                 replace_in_document(doc, old, new)
+
+            # 査定に関連する特約条項（Table1 R5 C1）
+            if special_terms:
+                try:
+                    cell = doc.tables[1].rows[5].cells[1]
+                    # 既存段落のテキストをクリアして新しいテキストを設定
+                    for i, para in enumerate(cell.paragraphs):
+                        for run in para.runs:
+                            run.text = ""
+                    # 最初の段落に特約事項テキストを設定
+                    lines = special_terms.split("\n")
+                    if cell.paragraphs and cell.paragraphs[0].runs:
+                        cell.paragraphs[0].runs[0].text = lines[0]
+                    else:
+                        cell.paragraphs[0].text = lines[0]
+                    # 残りの行は新規段落追加
+                    for line in lines[1:]:
+                        insert_paragraph_after(cell.paragraphs[-1], line)
+                except Exception:
+                    pass
 
             # 一時ファイルに保存して返す
             with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:

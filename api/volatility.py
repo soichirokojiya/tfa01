@@ -3,27 +3,27 @@ Vercel Serverless Function: ボラティリティ計算Excel生成
 POST /api/volatility
 
 SPEEDAエクスポートの月次株価Excelを受け取り、
-計算過程付きのボラティリティ計算Excelを返す。
+元データを残したまま新規タブに計算過程付きのボラティリティ計算シートを追加して返す。
 """
 
 import io
 import cgi
-import tempfile
 import os
 import urllib.parse
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler
-from openpyxl import load_workbook, Workbook
+from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
 
 def generate_volatility_excel(input_bytes: bytes) -> bytes:
-    wb_in = load_workbook(io.BytesIO(input_bytes))
-    ws_in = wb_in.active
+    wb = load_workbook(io.BytesIO(input_bytes))
+    ws_in = wb.active
 
+    # データ読み取り（日付と終値の数値行のみ）
     data_rows = []
     for row in ws_in.iter_rows(min_row=2, values_only=True):
         if row[0] is not None and row[1] is not None:
-            # 数値データ行のみ取り込む（SPEEDAのヘッダー行をスキップ）
             try:
                 float(row[1])
             except (ValueError, TypeError):
@@ -33,11 +33,27 @@ def generate_volatility_excel(input_bytes: bytes) -> bytes:
     if len(data_rows) < 3:
         raise ValueError("月次株価データが不足しています（最低3ヶ月分必要）")
 
+    # 日付昇順ソート
+    def sort_key(item):
+        d = item[0]
+        if isinstance(d, datetime):
+            return d
+        if isinstance(d, str):
+            try:
+                return datetime.strptime(d.replace("/", "-"), "%Y-%m")
+            except Exception:
+                pass
+            try:
+                return datetime.strptime(d.replace("/", "-"), "%Y-%m-%d")
+            except Exception:
+                pass
+        return datetime.min
+    data_rows.sort(key=sort_key)
+
     n = len(data_rows)
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "ボラティリティ計算"
+    # 新規シートを追加（元データシートは保持）
+    ws = wb.create_sheet(title="ボラティリティ計算")
 
     # スタイル定義
     title_font = Font(name="ＭＳ Ｐゴシック", size=14, bold=True)
@@ -82,7 +98,7 @@ def generate_volatility_excel(input_bytes: bytes) -> bytes:
     ws.column_dimensions["C"].width = 14
     ws.column_dimensions["D"].width = 28
 
-    # データ行 (行5～)
+    # データ行 (行5～) ← 昇順ソート済み
     data_start_row = 5
     for i, (date_val, price_val) in enumerate(data_rows):
         row_num = data_start_row + i
@@ -215,7 +231,6 @@ class handler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", 0))
 
             if "multipart/form-data" in content_type:
-                # multipart/form-data からファイルを抽出
                 environ = {
                     "REQUEST_METHOD": "POST",
                     "CONTENT_TYPE": content_type,

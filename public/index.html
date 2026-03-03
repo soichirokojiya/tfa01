@@ -225,9 +225,9 @@
       <button class="btn-dl" onclick="generateBondExcel()" id="bondBtn">国債ハイライトExcel生成</button>
     </div>
 
-    <label for="betaImage">β値スクリーンショット</label>
-    <p class="hint">SPEEDAのβ値画面のスクリーンショット</p>
-    <input type="file" id="betaImage" accept="image/*">
+    <label for="betaValue">対指数β</label>
+    <p class="hint">SPEEDAの日次β値を入力</p>
+    <input type="text" id="betaValue" placeholder="例: 0.567">
 
     <button id="generateBtn" onclick="generate()">報告書を生成</button>
 
@@ -236,6 +236,20 @@
 
   <script>
     document.getElementById('evalDate').value = new Date().toISOString().split('T')[0];
+
+    // 数値入力欄にカンマ自動フォーマット
+    function addCommaFormat(id) {
+      const el = document.getElementById(id);
+      el.addEventListener('input', function() {
+        const raw = this.value.replace(/,/g, '').replace(/[^\d.]/g, '');
+        if (raw === '') { this.value = ''; return; }
+        const parts = raw.split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        this.value = parts.join('.');
+      });
+    }
+    addCommaFormat('warrantTotal');
+    addCommaFormat('issuableShares');
 
     // 上場コード入力時に会社名を自動取得
     let lookupTimer = null;
@@ -268,6 +282,56 @@
         el.className = 'company-name';
       }
     });
+
+    // ── SPEEDAデータからボラティリティを計算 ──
+    function computeVolatilityFromSpeeda(fileData) {
+      const wb = XLSX.read(fileData, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const range = XLSX.utils.decode_range(ws['!ref']);
+      // 日付列と終値列を検出
+      let dateCol = 0, priceCol = 1;
+      for (let r = range.s.r; r <= Math.min(range.s.r + 10, range.e.r); r++) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const cell = ws[XLSX.utils.encode_cell({r, c})];
+          if (!cell) continue;
+          const val = String(cell.v || '').trim();
+          if (val === '日付' || val === 'Date' || val.includes('年月')) dateCol = c;
+          if (val === '終値' || val.includes('終値') || val === 'Close') priceCol = c;
+        }
+      }
+      // データ行を収集（数値のみ）
+      const rows = [];
+      for (let r = range.s.r; r <= range.e.r; r++) {
+        const pCell = ws[XLSX.utils.encode_cell({r, c: priceCol})];
+        const dCell = ws[XLSX.utils.encode_cell({r, c: dateCol})];
+        if (!pCell || typeof pCell.v !== 'number') continue;
+        let dateVal = null;
+        if (dCell) {
+          if (typeof dCell.v === 'number' && dCell.v > 30000) dateVal = new Date((dCell.v - 25569) * 86400000);
+          else if (dCell.v) dateVal = new Date(String(dCell.v).replace(/\//g, '-'));
+        }
+        rows.push({ date: dateVal, price: pCell.v });
+      }
+      if (rows.length < 3) return null;
+      // 日付昇順ソート
+      rows.sort((a, b) => (a.date && b.date) ? a.date - b.date : 0);
+      // 対数収益率
+      const logReturns = [];
+      for (let i = 1; i < rows.length; i++) {
+        logReturns.push(Math.log(rows[i].price / rows[i - 1].price));
+      }
+      // 標準偏差（不偏）
+      const mean = logReturns.reduce((s, v) => s + v, 0) / logReturns.length;
+      const variance = logReturns.reduce((s, v) => s + (v - mean) ** 2, 0) / (logReturns.length - 1);
+      const monthlyStd = Math.sqrt(variance);
+      const annualVol = monthlyStd * Math.sqrt(12) * 100;
+      // 期間ラベル
+      const first = rows[0].date;
+      const last = rows[rows.length - 1].date;
+      const startLabel = first ? `${first.getFullYear()}年${first.getMonth() + 1}月` : '';
+      const endLabel = last ? `${last.getFullYear()}年${last.getMonth() + 1}月` : '';
+      return { volatility: Math.round(annualVol * 100) / 100, startLabel, endLabel };
+    }
 
     // ── ボラティリティ計算Excel Blob生成（サーバーサイド） ──
     async function buildVolatilityBlob() {
@@ -551,6 +615,16 @@
       const bondInfo = await extractBondInfo();
       const exerciseEnd = document.getElementById('exerciseEnd').value;
 
+      // SPEEDAデータからボラティリティを計算
+      let volData = null;
+      const monthlyInput = document.getElementById('monthlyFile');
+      if (monthlyInput.files.length > 0) {
+        try {
+          const buf = await monthlyInput.files[0].arrayBuffer();
+          volData = computeVolatilityFromSpeeda(buf);
+        } catch (e) { console.error('Volatility calc error:', e); }
+      }
+
       const payload = {
         ticker_code: ticker,
         eval_date: evalDate,
@@ -565,6 +639,10 @@
         bond_name: bondInfo ? bondInfo.name : '',
         bond_maturity: bondInfo ? bondInfo.maturity : '',
         bond_yield: bondInfo ? bondInfo.yield_value : '',
+        beta: document.getElementById('betaValue').value.trim(),
+        volatility: volData ? String(volData.volatility) : '',
+        vol_start_label: volData ? volData.startLabel : '',
+        vol_end_label: volData ? volData.endLabel : '',
       };
 
       btn.disabled = true;
