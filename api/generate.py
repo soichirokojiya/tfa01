@@ -218,8 +218,6 @@ class handler(BaseHTTPRequestHandler):
             special_terms = body.get("special_terms", "")
             market_risk_premium = body.get("market_risk_premium", "")
             beta_val = body.get("beta", "")
-            bond_name = body.get("bond_name", "")
-            bond_maturity = body.get("bond_maturity", "")
 
             fair_value_per_share = float(fair_value_str) if fair_value_str else None
 
@@ -259,13 +257,6 @@ class handler(BaseHTTPRequestHandler):
                 replacements.append(("9.3%", f"{market_risk_premium}%"))
             if beta_val:
                 replacements.append(("0.567", beta_val))
-
-            # 国債情報
-            if bond_maturity:
-                bm_dt = datetime.strptime(bond_maturity, "%Y-%m-%d")
-                replacements.append(("2031年3月20日", fmt_date_jp(bm_dt)))
-            if bond_name:
-                replacements.append(("長期国債362", bond_name))
 
             # 権利行使期間
             if exercise_start and exercise_end:

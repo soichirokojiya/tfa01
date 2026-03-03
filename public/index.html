@@ -187,18 +187,6 @@
       </div>
     </div>
 
-    <div class="row">
-      <div>
-        <label for="bondName">国債銘柄名</label>
-        <p class="hint">例: 長期国債362</p>
-        <input type="text" id="bondName">
-      </div>
-      <div>
-        <label for="bondMaturity">国債償還日</label>
-        <input type="date" id="bondMaturity">
-      </div>
-    </div>
-
     <hr class="separator">
 
     <label for="monthlyFile">月次株価データ（ボラティリティ計算用）</label>
@@ -281,8 +269,6 @@
         special_terms: document.getElementById('specialTerms').value.trim(),
         market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
         beta: document.getElementById('beta').value.trim(),
-        bond_name: document.getElementById('bondName').value.trim(),
-        bond_maturity: document.getElementById('bondMaturity').value,
       };
 
       btn.disabled = true;
