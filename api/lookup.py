@@ -8,19 +8,31 @@ import re
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+import yfinance as yf
 
 
 def fetch_company_name(ticker_code: str) -> str:
-    url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        html = resp.read().decode("utf-8")
-    m = re.search(r"<title>(.*?)【\d+】", html)
-    if not m:
-        return ""
-    name = m.group(1).strip()
-    # 「(株)」「株式会社」は残す（表示用）
-    return name
+    # 1) Yahoo Finance Japan のWebページから取得
+    try:
+        url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8")
+        m = re.search(r"<title>(.*?)【\d+】", html)
+        if m:
+            return m.group(1).strip()
+    except Exception:
+        pass
+
+    # 2) フォールバック: yfinance API
+    try:
+        ticker = yf.Ticker(f"{ticker_code}.T")
+        info = ticker.info
+        return info.get("shortName", "") or info.get("longName", "")
+    except Exception:
+        pass
+
+    return ""
 
 
 class handler(BaseHTTPRequestHandler):

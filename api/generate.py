@@ -32,44 +32,64 @@ TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "..", "template.docx")
 # ──────────────────────────────────────────────
 
 def fetch_japanese_company_name(ticker_code: str) -> str:
-    url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        html = resp.read().decode("utf-8")
-    m = re.search(r"<title>(.*?)【\d+】", html)
-    if not m:
-        raise ValueError(f"社名を取得できませんでした: {ticker_code}")
-    name = m.group(1).strip()
-    name = re.sub(r"^\(株\)", "", name)
-    name = re.sub(r"\(株\)$", "", name)
-    name = re.sub(r"^株式会社", "", name)
-    name = re.sub(r"株式会社$", "", name)
-    return name.strip()
+    # 1) Yahoo Finance Japan Webページ
+    try:
+        url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8")
+        m = re.search(r"<title>(.*?)【\d+】", html)
+        if m:
+            name = m.group(1).strip()
+            name = re.sub(r"^\(株\)", "", name)
+            name = re.sub(r"\(株\)$", "", name)
+            name = re.sub(r"^株式会社", "", name)
+            name = re.sub(r"株式会社$", "", name)
+            return name.strip()
+    except Exception:
+        pass
+
+    # 2) フォールバック: yfinance API
+    try:
+        ticker = yf.Ticker(f"{ticker_code}.T")
+        info = ticker.info
+        name = info.get("shortName", "") or info.get("longName", "")
+        name = re.sub(r"^\(株\)", "", name)
+        name = re.sub(r"\(株\)$", "", name)
+        name = re.sub(r"^株式会社", "", name)
+        name = re.sub(r"株式会社$", "", name)
+        return name.strip()
+    except Exception:
+        pass
+
+    raise ValueError(f"社名を取得できませんでした: {ticker_code}")
 
 
 def fetch_company_profile(ticker_code: str) -> dict:
-    url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T/profile"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        html = resp.read().decode("utf-8")
+    profile = {"representative": "", "address": "", "established": "", "settlement": ""}
 
-    def extract(label):
-        m = re.search(rf'<th[^>]*>{label}</th>\s*<td[^>]*>(.*?)</td>', html, re.DOTALL)
-        if m:
-            return re.sub(r'<[^>]+>', '', m.group(1)).strip()
-        return ""
+    # 1) Yahoo Finance Japan Webページ
+    try:
+        url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T/profile"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8")
 
-    address = ""
-    m = re.search(r'〒[\d\-]+\s*(.+?)(?=<|")', html)
-    if m:
-        address = m.group(1).strip()
+        def extract(label):
+            m = re.search(rf'<th[^>]*>{label}</th>\s*<td[^>]*>(.*?)</td>', html, re.DOTALL)
+            if m:
+                return re.sub(r'<[^>]+>', '', m.group(1)).strip()
+            return ""
 
-    return {
-        "representative": extract("代表者名"),
-        "address": address,
-        "established": extract("設立年月日"),
-        "settlement": extract("決算"),
-    }
+        m = re.search(r'〒[\d\-]+\s*(.+?)(?=<|")', html)
+        profile["representative"] = extract("代表者名")
+        profile["address"] = m.group(1).strip() if m else ""
+        profile["established"] = extract("設立年月日")
+        profile["settlement"] = extract("決算")
+    except Exception:
+        pass
+
+    return profile
 
 
 def fetch_stock_data(ticker_code: str, eval_date: str):
