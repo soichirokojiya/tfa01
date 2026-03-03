@@ -479,14 +479,21 @@
           if (ws[oldAddr]) { ws[newAddr] = ws[oldAddr]; delete ws[oldAddr]; }
         }
       }
+
+      // シフト後のデータ範囲
+      const volColLetter = XLSX.utils.encode_col(volCol);
+      const shiftedStart = dataStartRow + 2 + 1; // 0-indexed→1-indexed
+      const shiftedEnd = range.e.r + 2 + 1;
+      const medianFormula = 'MEDIAN(' + volColLetter + shiftedStart + ':' + volColLetter + shiftedEnd + ')';
+
       ws['A1'] = { v: '日次売買高の中央値', t: 's', s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } } };
-      ws['B1'] = { v: Math.round(median), t: 'n', s: { font: { bold: true, sz: 14, name: 'ＭＳ Ｐゴシック' }, fill: { fgColor: { rgb: 'FFFF00' } }, numFmt: '#,##0' } };
+      ws['B1'] = { t: 's', f: medianFormula, s: { font: { bold: true, sz: 14, name: 'ＭＳ Ｐゴシック' }, fill: { fgColor: { rgb: 'FFFF00' } }, z: '#,##0' } };
       ws['C1'] = { v: '株', t: 's', s: { font: { bold: true, sz: 12, name: 'ＭＳ Ｐゴシック' } } };
       ws['A2'] = { v: '対象期間: ' + periodStr, t: 's', s: { font: { sz: 10, name: 'ＭＳ Ｐゴシック', color: { rgb: '666666' } } } };
 
       const medianRow = range.e.r + 4;
       ws[XLSX.utils.encode_cell({r: medianRow, c: 0})] = { v: '中央値', t: 's', s: { font: { bold: true } } };
-      ws[XLSX.utils.encode_cell({r: medianRow, c: volCol})] = { v: Math.round(median), t: 'n', s: { font: { bold: true }, fill: { fgColor: { rgb: 'FFF2CC' } }, numFmt: '#,##0' } };
+      ws[XLSX.utils.encode_cell({r: medianRow, c: volCol})] = { t: 's', f: medianFormula, s: { font: { bold: true }, fill: { fgColor: { rgb: 'FFF2CC' } }, z: '#,##0' } };
       ws['!ref'] = XLSX.utils.encode_range({r: 0, c: range.s.c}, {r: medianRow, c: range.e.c});
 
       const outBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
