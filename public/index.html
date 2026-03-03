@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>新株予約権評価報告書 生成ツール</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -249,31 +250,64 @@
         return;
       }
 
-      // ファイルをbase64で読み込む
-      async function readFileAsBase64(inputId) {
-        const input = document.getElementById(inputId);
-        if (!input.files.length) return null;
-        return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.readAsDataURL(input.files[0]);
-        });
+      // 売買参考統計値から権利行使期間終了日に最も近い長期国債を抽出
+      let bondInfo = null;
+      const exerciseEnd = document.getElementById('exerciseEnd').value;
+      const bondInput = document.getElementById('bondFile');
+      if (bondInput.files.length > 0 && exerciseEnd) {
+        try {
+          const fileData = await bondInput.files[0].arrayBuffer();
+          const wb = XLSX.read(fileData, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const targetDate = new Date(exerciseEnd);
+          let closest = null;
+          let minDiff = Infinity;
+          const range = XLSX.utils.decode_range(ws['!ref']);
+          for (let r = range.s.r; r <= range.e.r; r++) {
+            const nameCell = ws[XLSX.utils.encode_cell({r, c: 2})];
+            if (!nameCell) continue;
+            const name = String(nameCell.v || '').trim();
+            if (!name.startsWith('長期国債') || name.includes('超長期') || name.includes('WI')) continue;
+            const matCell = ws[XLSX.utils.encode_cell({r, c: 3})];
+            const yieldCell = ws[XLSX.utils.encode_cell({r, c: 11})];
+            if (!matCell || !yieldCell) continue;
+            let matDate;
+            if (typeof matCell.v === 'number') {
+              matDate = new Date((matCell.v - 25569) * 86400000);
+            } else {
+              matDate = new Date(String(matCell.v).replace(/\//g, '-'));
+            }
+            if (isNaN(matDate.getTime())) continue;
+            const diff = Math.abs(matDate - targetDate);
+            if (diff < minDiff) {
+              minDiff = diff;
+              closest = {
+                name: name.replace(/\s+/g, '').replace(/\u3000/g, ''),
+                maturity: matDate.toISOString().split('T')[0],
+                yield_value: String(yieldCell.v),
+              };
+            }
+          }
+          bondInfo = closest;
+        } catch (e) {
+          console.error('Bond file parse error:', e);
+        }
       }
-
-      const bondFileData = await readFileAsBase64('bondFile');
 
       const payload = {
         ticker_code: ticker,
         eval_date: evalDate,
         exercise_start: document.getElementById('exerciseStart').value,
-        exercise_end: document.getElementById('exerciseEnd').value,
+        exercise_end: exerciseEnd,
         resolution_date: document.getElementById('resolutionDate').value,
         warrant_total: document.getElementById('warrantTotal').value.trim(),
         issuable_shares: document.getElementById('issuableShares').value.trim(),
         fair_value_per_share: document.getElementById('fairValue').value.trim(),
         special_terms: document.getElementById('specialTerms').value.trim(),
         market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
-        bond_file_data: bondFileData,
+        bond_name: bondInfo ? bondInfo.name : '',
+        bond_maturity: bondInfo ? bondInfo.maturity : '',
+        bond_yield: bondInfo ? bondInfo.yield_value : '',
       };
 
       btn.disabled = true;
@@ -288,8 +322,9 @@
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || 'サーバーエラー');
+          let msg = 'サーバーエラー';
+          try { const err = await res.json(); msg = err.error || msg; } catch { msg = await res.text() || msg; }
+          throw new Error(msg);
         }
 
         const blob = await res.blob();
