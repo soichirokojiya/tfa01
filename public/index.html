@@ -224,10 +224,6 @@
       <button class="btn-dl" onclick="generateBondExcel()" id="bondBtn">国債ハイライトExcel生成</button>
     </div>
 
-    <label for="betaValue">対指数β</label>
-    <p class="hint">SPEEDAのβ値を入力</p>
-    <input type="text" id="betaValue" placeholder="例: 0.567">
-
     <label for="betaImage">β値スクリーンショット</label>
     <p class="hint">SPEEDAのβ値画面のスクリーンショット</p>
     <input type="file" id="betaImage" accept="image/*">
@@ -660,7 +656,6 @@
         fair_value_per_share: document.getElementById('fairValue').value.trim(),
         special_terms: document.getElementById('specialTerms').value.trim(),
         market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
-        beta_value: document.getElementById('betaValue').value.trim(),
         bond_name: bondInfo ? bondInfo.name : '',
         bond_maturity: bondInfo ? bondInfo.maturity : '',
         bond_yield: bondInfo ? bondInfo.yield_value : '',
