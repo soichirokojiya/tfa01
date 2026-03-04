@@ -724,6 +724,26 @@
         return;
       }
 
+      // βスクリーンショットがあり、β値が未入力なら自動抽出
+      const betaInput = document.getElementById('betaImage');
+      const betaValueEl = document.getElementById('betaValue');
+      if (betaInput.files.length > 0 && !betaValueEl.value.trim()) {
+        btn.disabled = true;
+        status.className = 'status loading';
+        status.innerHTML = '<span class="spinner"></span>β値をAIで抽出中...';
+        try {
+          const formData = new FormData();
+          formData.append('file', betaInput.files[0]);
+          const betaRes = await fetch('/api/extract-beta', { method: 'POST', body: formData });
+          if (betaRes.ok) {
+            const betaData = await betaRes.json();
+            betaValueEl.value = String(betaData.beta);
+            document.getElementById('betaResult').textContent = '抽出されたβ値: ' + betaData.beta;
+            document.getElementById('betaResult').style.display = 'block';
+          }
+        } catch (e) { console.error('Beta extraction error:', e); }
+      }
+
       const bondInfo = await extractBondInfo();
       const exerciseEnd = document.getElementById('exerciseEnd').value;
 
