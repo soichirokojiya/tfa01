@@ -30,6 +30,10 @@
     { "src": "/api/lookup", "dest": "/api/lookup.py" },
     { "src": "/api/volatility", "dest": "/api/volatility.py" },
     { "src": "/api/extract-beta", "dest": "/api/extract_beta.py" },
-    { "src": "/(.*)", "dest": "/public/$1" }
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1",
+      "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" }
+    }
   ]
 }
