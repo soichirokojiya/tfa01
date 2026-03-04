@@ -16,6 +16,7 @@ from http.server import BaseHTTPRequestHandler
 from copy import deepcopy
 from docx import Document
 from docx.oxml.ns import qn
+from docx.shared import Pt
 from docx.text.paragraph import Paragraph
 import yfinance as yf
 import numpy as np
@@ -187,7 +188,7 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
 # docx 操作
 # ──────────────────────────────────────────────
 
-def insert_paragraph_after(paragraph, text, font_name="ＭＳ Ｐ明朝"):
+def insert_paragraph_after(paragraph, text, font_name="ＭＳ Ｐ明朝", font_size=11):
     new_p = deepcopy(paragraph._element)
     for r in new_p.findall(qn('w:r')):
         new_p.remove(r)
@@ -199,6 +200,10 @@ def insert_paragraph_after(paragraph, text, font_name="ＭＳ Ｐ明朝"):
         qn('w:hAnsi'): font_name,
     })
     rPr.append(rFonts)
+    sz = rPr.makeelement(qn('w:sz'), {qn('w:val'): str(font_size * 2)})
+    szCs = rPr.makeelement(qn('w:szCs'), {qn('w:val'): str(font_size * 2)})
+    rPr.append(sz)
+    rPr.append(szCs)
     run_elem.append(rPr)
     t_elem = run_elem.makeelement(qn('w:t'), {})
     t_elem.text = text
@@ -350,7 +355,7 @@ class handler(BaseHTTPRequestHandler):
 
             # 対指数β
             if beta_value:
-                replacements.append(("0.567", str(beta_value)))
+                replacements.append(("0.922", str(beta_value)))
 
             # 権利行使期間
             if exercise_start and exercise_end:
@@ -389,10 +394,11 @@ class handler(BaseHTTPRequestHandler):
                     for i, para in enumerate(cell.paragraphs):
                         for run in para.runs:
                             run.text = ""
-                    # 最初の段落に特約事項テキストを設定
+                    # 最初の段落に特約事項テキストを設定（フォントサイズ11pt）
                     lines = special_terms.split("\n")
                     if cell.paragraphs and cell.paragraphs[0].runs:
                         cell.paragraphs[0].runs[0].text = lines[0]
+                        cell.paragraphs[0].runs[0].font.size = Pt(11)
                     else:
                         cell.paragraphs[0].text = lines[0]
                     # 残りの行は新規段落追加
