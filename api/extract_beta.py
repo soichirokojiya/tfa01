@@ -57,9 +57,11 @@ def extract_beta_from_image(image_bytes: bytes, content_type: str) -> dict:
                         "type": "text",
                         "text": (
                             "この画像はSPEEDAのβ値画面のスクリーンショットです。\n"
-                            "「Unlevered β」の数値を正確に読み取ってください。\n"
-                            "Levered βではなく、Unlevered βの値です。\n"
-                            "回答は数値のみ（例: 0.985）で返してください。余計な説明は不要です。"
+                            "右側のテーブルに「Levered β」と「Unlevered β」の2行があります。\n"
+                            "「Unlevered β」の行の右端にある数値を正確に読み取ってください。\n"
+                            "注意: Levered βではなく、必ずUnlevered βの値を返してください。\n"
+                            "Unlevered βはテーブルの最下行にあります。\n"
+                            "回答は数値のみ（例: 0.921）で返してください。余計な説明は不要です。"
                         ),
                     },
                 ],
