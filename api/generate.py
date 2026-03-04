@@ -355,7 +355,7 @@ class handler(BaseHTTPRequestHandler):
 
             # 対指数β
             if beta_value:
-                replacements.append(("0.922", str(beta_value)))
+                replacements.append(("0.567", str(beta_value)))
 
             # 権利行使期間
             if exercise_start and exercise_end:
