@@ -827,7 +827,7 @@
         downloadBlob(docxBlob, docxFilename);
 
         status.className = 'status success';
-        status.textContent = docxFilename + (hasExcels ? ' + 算定資料ZIP' : '') + ' をダウンロードしました。';
+        status.textContent = docxFilename + (hasFiles ? ' + 算定資料ZIP' : '') + ' をダウンロードしました。';
       } catch (e) {
         status.className = 'status error';
         status.textContent = 'エラー: ' + e.message;
