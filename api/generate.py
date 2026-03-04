@@ -344,7 +344,7 @@ class handler(BaseHTTPRequestHandler):
                 ("宮崎明", profile['representative'].replace("\u3000", "")),
                 ("宮崎\u3000明", profile['representative']),
                 ("東京都台東区上野1-16-5", profile['address']),
-                ("1990年4月", profile['established'].replace("10日", "").rstrip("日")),
+                ("1990年4月", re.sub(r'\d{1,2}日$', '', profile['established'])),
                 ("1月末", profile['settlement'].replace("日", "")),
             ]
 
@@ -364,6 +364,18 @@ class handler(BaseHTTPRequestHandler):
             # 対指数β
             if beta_value:
                 replacements.append(("0.567", str(beta_value)))
+
+            # CAPM計算式の自動計算
+            rfr = float(bond_yield) if bond_yield else 1.591
+            mrp = float(market_risk_premium) if market_risk_premium else 9.3
+            beta_num = float(beta_value) if beta_value else 0.567
+            credit_cost = 21.83  # テンプレートのクレジット・コスト
+            capm_result = round(rfr + mrp * beta_num + credit_cost, 2)
+            replacements.append((
+                "= 1.591% + 9.3%\u00d7 0.567 + 21.83%",
+                f"= {rfr}% + {mrp}%\u00d7 {beta_num} + {credit_cost}%"
+            ))
+            replacements.append(("= 28.69%", f"= {capm_result}%"))
 
             # ●プレースホルダー（テーブル1）
             if resolution_date:
