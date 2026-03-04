@@ -319,7 +319,15 @@ class handler(BaseHTTPRequestHandler):
             else:
                 volume_period = f"{fmt_date_jp(data['volume_start_date'])}から{fmt_date_jp(data['volume_end_date'])}"
 
-            replacements = [
+            # 権利行使期間（他の日付置換より先に実行）
+            replacements = []
+            if exercise_start and exercise_end:
+                ex_start_dt = datetime.strptime(exercise_start, "%Y-%m-%d")
+                ex_end_dt = datetime.strptime(exercise_end, "%Y-%m-%d")
+                replacements.append(("2026年3月3日-", f"{fmt_date_jp(ex_start_dt)}-"))
+                replacements.append(("2026年3月4日", fmt_date_jp(ex_end_dt)))
+
+            replacements += [
                 ("ジェリービーンズグループ", company_name_jp),
                 ("3070", ticker_code),
                 ("110円", f"{data['stock_price']:,}円"),
@@ -356,13 +364,6 @@ class handler(BaseHTTPRequestHandler):
             # 対指数β
             if beta_value:
                 replacements.append(("0.567", str(beta_value)))
-
-            # 権利行使期間
-            if exercise_start and exercise_end:
-                ex_start_dt = datetime.strptime(exercise_start, "%Y-%m-%d")
-                ex_end_dt = datetime.strptime(exercise_end, "%Y-%m-%d")
-                replacements.append(("2026年3月3日-", f"{fmt_date_jp(ex_start_dt)}-"))
-                replacements.append(("2026年3月4日", fmt_date_jp(ex_end_dt)))
 
             # ●プレースホルダー（テーブル1）
             if resolution_date:
