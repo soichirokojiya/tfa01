@@ -225,14 +225,14 @@
       <button class="btn-dl" onclick="generateBondExcel()" id="bondBtn">国債ハイライトExcel生成</button>
     </div>
 
-    <label>対指数β（スクリーンショット）</label>
-    <p class="hint">SPEEDAのβ値画面のスクリーンショットをアップロード → AI で自動抽出</p>
+    <label>対指数β</label>
+    <p class="hint">スクリーンショットからAI抽出、または直接入力</p>
     <div class="file-row">
       <input type="file" id="betaImage" accept="image/*">
       <button class="btn-dl" onclick="extractBeta()" id="betaBtn">β値抽出</button>
     </div>
     <div id="betaResult" style="font-size:13px;color:#2a7d2a;margin-bottom:16px;display:none;"></div>
-    <input type="hidden" id="betaValue" value="">
+    <input type="text" id="betaValue" placeholder="例: 0.921" value="">
 
     <button id="generateBtn" onclick="generate()">報告書を生成</button>
 
