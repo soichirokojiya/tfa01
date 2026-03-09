@@ -5,6 +5,7 @@ POST /api/extract_issuance
 
 import json
 import os
+import re
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 
@@ -25,7 +26,8 @@ def extract_from_text(text: str) -> dict:
         "- resolution_date: 決議日（YYYY-MM-DD形式、未定の場合は「未定」）\n"
         "- warrant_total: 新株予約権の総数（数字のみ、カンマなし）\n"
         "- issuable_shares: 行使による発行株式総数（数字のみ、カンマなし。見つからない場合は空文字）\n"
-        "- special_terms: 査定に関連する特約条項（取得条項、行使条件等があればそのまま記載）\n\n"
+        "- special_terms: 査定に関連する特約条項（取得条項、行使条件等があればそのまま記載）\n"
+        "- company_name: 発行会社名（「株式会社」を含む正式名称）\n\n"
         "JSONのみ返してください。説明は不要です。\n\n"
         "---\n"
         f"{text}\n"
@@ -55,11 +57,37 @@ def extract_from_text(text: str) -> dict:
     response_text = result["content"][0]["text"].strip()
 
     # JSONブロックを抽出
-    import re
     m = re.search(r'\{[\s\S]*\}', response_text)
-    if m:
-        return json.loads(m.group())
-    raise ValueError(f"JSON抽出失敗: {response_text[:200]}")
+    if not m:
+        raise ValueError(f"JSON抽出失敗: {response_text[:200]}")
+    data = json.loads(m.group())
+
+    # 会社名から上場コードを検索
+    company = data.get("company_name", "")
+    if company:
+        ticker_code = lookup_ticker(company)
+        if ticker_code:
+            data["ticker_code"] = ticker_code
+
+    return data
+
+
+def lookup_ticker(company_name: str) -> str:
+    """Yahoo Finance で会社名を検索して上場コードを返す"""
+    try:
+        # 「株式会社」を除いた短縮名で検索
+        short = company_name.replace("株式会社", "").strip()
+        url = f"https://finance.yahoo.co.jp/search/?query={urllib.request.quote(short)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8")
+        # 検索結果から最初の銘柄コードを取得
+        m = re.search(r'/quote/(\d{4})\.T', html)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ""
 
 
 class handler(BaseHTTPRequestHandler):

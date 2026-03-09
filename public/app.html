@@ -323,12 +323,18 @@
           throw new Error(err.error || '抽出エラー');
         }
         const data = await res.json();
+        // warrant_totalにカンマ付与
+        let warrantDisplay = data.warrant_total || '';
+        if (warrantDisplay) {
+          const num = parseInt(warrantDisplay.replace(/,/g, ''));
+          if (!isNaN(num)) warrantDisplay = num.toLocaleString();
+        }
         const fields = [
           ['exerciseStart', data.exercise_start],
           ['exerciseEnd', data.exercise_end],
           ['assignee', data.assignee],
           ['resolutionDate', data.resolution_date],
-          ['warrantTotal', data.warrant_total],
+          ['warrantTotal', warrantDisplay],
           ['issuableShares', data.issuable_shares],
           ['specialTerms', data.special_terms],
         ];
@@ -338,6 +344,13 @@
             document.getElementById(id).value = val;
             filled.push(id);
           }
+        }
+        // 上場コード自動セット
+        if (data.ticker_code) {
+          const tickerEl = document.getElementById('ticker');
+          tickerEl.value = data.ticker_code;
+          tickerEl.dispatchEvent(new Event('input'));
+          filled.push('ticker');
         }
         // 総個数→株式数自動計算
         if (data.warrant_total) {
