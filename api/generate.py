@@ -39,9 +39,9 @@ def fetch_jsda_bond(eval_dt, exercise_end_dt) -> dict:
     result = {"name": "", "maturity": "", "yield_value": "", "all_bonds": []}
     try:
         import xlrd
-        # ファイル名: S + 和暦2桁 + MMDD
-        era_year = eval_dt.year - 2018  # 令和
-        fname = f"S{era_year:02d}{eval_dt.month:02d}{eval_dt.day:02d}"
+        # ファイル名: S + 西暦下2桁 + MMDD
+        yy = eval_dt.year % 100
+        fname = f"S{yy:02d}{eval_dt.month:02d}{eval_dt.day:02d}"
         url = f"https://market.jsda.or.jp/shijyo/saiken/baibai/baisanchi/files/{eval_dt.year}/{fname}.xls"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -655,9 +655,10 @@ class handler(BaseHTTPRequestHandler):
 
             # 国債データ自動取得
             jsda_all_bonds = []
+            ex_end_dt = None
             if exercise_end:
+                ex_end_dt = datetime.strptime(exercise_end, "%Y-%m-%d")
                 try:
-                    ex_end_dt = datetime.strptime(exercise_end, "%Y-%m-%d")
                     jsda = fetch_jsda_bond(eval_dt, ex_end_dt)
                     jsda_all_bonds = jsda.get("all_bonds", [])
                     if not bond_yield and jsda["yield_value"]:
@@ -861,7 +862,7 @@ class handler(BaseHTTPRequestHandler):
                 zf.writestr(docx_filename, docx_bytes)
                 zf.writestr(f"{company_name_jp}_ボラティリティ計算.xlsx", vol_excel)
                 zf.writestr(f"{company_name_jp}_出来高中央値.xlsx", volume_excel)
-                if jsda_all_bonds and exercise_end:
+                if jsda_all_bonds and ex_end_dt:
                     bond_excel = build_bond_excel(
                         jsda_all_bonds, eval_dt, ex_end_dt, bond_name)
                     zf.writestr(f"{company_name_jp}_リスクフリーレート.xlsx", bond_excel)
