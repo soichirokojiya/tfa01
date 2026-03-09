@@ -865,14 +865,33 @@ class handler(BaseHTTPRequestHandler):
             for old, new in replacements:
                 replace_in_document(doc, old, new)
 
-            # 割当先（Table1 R1 C1）
+            # 割当先（Table1 R1 C1）- 改行対応
             if assignee:
                 try:
                     cell = doc.tables[1].rows[1].cells[1]
+                    # 既存のrunをクリア
                     for para in cell.paragraphs:
                         for run in para.runs:
-                            if "●" in run.text:
-                                run.text = run.text.replace("●", assignee)
+                            run.text = ""
+                    lines = assignee.split("\n")
+                    first_para = cell.paragraphs[0]
+                    if first_para.runs:
+                        first_para.runs[0].text = lines[0]
+                        first_para.runs[0].font.size = Pt(11)
+                        first_para.runs[0].font.name = "ＭＳ Ｐ明朝"
+                        rPr = first_para.runs[0]._element.find(qn('w:rPr'))
+                        if rPr is not None:
+                            rFonts = rPr.find(qn('w:rFonts'))
+                            if rFonts is None:
+                                rFonts = rPr.makeelement(qn('w:rFonts'), {})
+                                rPr.insert(0, rFonts)
+                            rFonts.set(qn('w:eastAsia'), "ＭＳ Ｐ明朝")
+                    else:
+                        run = first_para.add_run(lines[0])
+                        run.font.size = Pt(11)
+                        run.font.name = "ＭＳ Ｐ明朝"
+                    for line in lines[1:]:
+                        insert_paragraph_after(cell.paragraphs[-1], line)
                 except Exception:
                     pass
 
