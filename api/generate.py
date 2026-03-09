@@ -180,9 +180,25 @@ def fetch_company_profile(ticker_code: str) -> dict:
     return profile
 
 
-def fetch_stock_data(ticker_code: str, eval_date: str):
+def fetch_stock_data(ticker_code: str, eval_date: str, exercise_end: str = ""):
     ticker = yf.Ticker(f"{ticker_code}.T")
     eval_dt = datetime.strptime(eval_date, "%Y-%m-%d")
+
+    # 権利行使期間終了日から期間を算出
+    if exercise_end:
+        ex_end_dt = datetime.strptime(exercise_end, "%Y-%m-%d")
+    else:
+        # デフォルト: 5年
+        ex_end_dt = eval_dt + relativedelta(years=5)
+
+    # 基準日から満期までの月数（ボラティリティ用）
+    rd = relativedelta(ex_end_dt, eval_dt)
+    months_to_maturity = rd.years * 12 + rd.months
+    if rd.days > 0:
+        months_to_maturity += 1  # 端数月は切り上げ
+
+    # 基準日から満期までの日数（出来高用）
+    days_to_maturity = (ex_end_dt - eval_dt).days
 
     start = (eval_dt - timedelta(days=10)).strftime("%Y-%m-%d")
     end = (eval_dt + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -192,8 +208,9 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
         raise ValueError(f"評価基準日 {eval_date} の株価データが取得できません")
     stock_price = int(hist_before["Close"].iloc[-1])
 
-    vol_end_month = eval_dt.replace(day=1) - timedelta(days=1)
-    vol_start_month = vol_end_month - relativedelta(years=5)
+    # ボラティリティ: 基準日の前月から months_to_maturity ヶ月遡る
+    vol_end_month = eval_dt.replace(day=1) - timedelta(days=1)  # 前月末
+    vol_start_month = vol_end_month - relativedelta(months=months_to_maturity - 1)
     vol_start = vol_start_month.replace(day=1).strftime("%Y-%m-%d")
     vol_end = (vol_end_month + timedelta(days=1)).strftime("%Y-%m-%d")
     hist_monthly = ticker.history(start=vol_start, end=vol_end, interval="1mo")
@@ -202,9 +219,10 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
     vol_start_label = f"{vol_start_month.year}年{vol_start_month.month}月"
     vol_end_label = f"{vol_end_month.year}年{vol_end_month.month}月"
 
+    # 出来高: 基準日から days_to_maturity 日分を遡る
     report_date = eval_dt
-    volume_end = eval_dt - timedelta(days=1)
-    volume_start = eval_dt - relativedelta(years=5)
+    volume_end = eval_dt
+    volume_start = eval_dt - timedelta(days=days_to_maturity)
     hist_daily = ticker.history(
         start=volume_start.strftime("%Y-%m-%d"),
         end=(volume_end + timedelta(days=1)).strftime("%Y-%m-%d"),
@@ -524,7 +542,7 @@ class handler(BaseHTTPRequestHandler):
             # データ取得
             company_name_jp = fetch_japanese_company_name(ticker_code)
             profile = fetch_company_profile(ticker_code)
-            data = fetch_stock_data(ticker_code, eval_date)
+            data = fetch_stock_data(ticker_code, eval_date, exercise_end)
 
             # 国債データ自動取得（手動入力がない場合）
             if not bond_yield and exercise_end:
