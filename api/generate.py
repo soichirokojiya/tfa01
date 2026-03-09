@@ -32,6 +32,46 @@ _candidates = [
 TEMPLATE_PATH = next((p for p in _candidates if os.path.exists(p)), _candidates[0])
 
 
+def fetch_jsda_bond(eval_dt, exercise_end_dt) -> dict:
+    """JSDAサイトから売買参考統計値をDLし、権利行使期間終了に最も近い長期国債を返す"""
+    result = {"name": "", "maturity": "", "yield_value": ""}
+    try:
+        import xlrd
+        # ファイル名: S + 和暦2桁 + MMDD
+        era_year = eval_dt.year - 2018  # 令和
+        fname = f"S{era_year:02d}{eval_dt.month:02d}{eval_dt.day:02d}"
+        url = f"https://market.jsda.or.jp/shijyo/saiken/baibai/baisanchi/files/{eval_dt.year}/{fname}.xls"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+        wb = xlrd.open_workbook(file_contents=data)
+        ws = wb.sheet_by_index(0)
+        # 権利行使期間終了日に最も近い長期国債を探す
+        best = None
+        for r in range(1, ws.nrows):
+            name = str(ws.cell_value(r, 2))
+            if "長期国債" not in name:
+                continue
+            maturity_str = str(ws.cell_value(r, 3))
+            yield_val = ws.cell_value(r, 11)
+            if not yield_val:
+                continue
+            try:
+                mat_dt = datetime.strptime(maturity_str, "%Y/%m/%d")
+            except (ValueError, TypeError):
+                continue
+            diff = abs((mat_dt - exercise_end_dt).days)
+            if best is None or diff < best[0]:
+                best = (diff, name.strip(), mat_dt, float(yield_val))
+        if best:
+            result["name"] = best[1]
+            result["maturity"] = best[2].strftime("%Y-%m-%d")
+            result["yield_value"] = str(best[3])
+    except Exception:
+        pass
+    return result
+
+
 def fetch_yahoo_quote_data(ticker_code: str) -> dict:
     """Yahoo Finance Japan から発行済株式数・配当情報を取得"""
     result = {"shares_outstanding": 0, "dividend_per_share": 0, "dividend_yield": 0.0}
@@ -288,9 +328,9 @@ class handler(BaseHTTPRequestHandler):
             market_risk_premium = body.get("market_risk_premium", "")
             default_rate = body.get("default_rate", "")
             credit_cost_input = body.get("credit_cost", "")
-            bond_name = body.get("bond_name", "")
-            bond_maturity = body.get("bond_maturity", "")
-            bond_yield = body.get("bond_yield", "")
+            bond_name = body.get("bond_name", "").strip()
+            bond_maturity = body.get("bond_maturity", "").strip()
+            bond_yield = body.get("bond_yield", "").strip()
             beta_value = body.get("beta", "")
             volatility_override = body.get("volatility", "")
             vol_start_override = body.get("vol_start_label", "")
@@ -305,6 +345,18 @@ class handler(BaseHTTPRequestHandler):
             company_name_jp = fetch_japanese_company_name(ticker_code)
             profile = fetch_company_profile(ticker_code)
             data = fetch_stock_data(ticker_code, eval_date)
+
+            # 国債データ自動取得（手動入力がない場合）
+            if not bond_yield and exercise_end:
+                try:
+                    ex_end_dt = datetime.strptime(exercise_end, "%Y-%m-%d")
+                    jsda = fetch_jsda_bond(eval_dt, ex_end_dt)
+                    if jsda["yield_value"]:
+                        bond_name = bond_name or jsda["name"]
+                        bond_maturity = bond_maturity or jsda["maturity"]
+                        bond_yield = jsda["yield_value"]
+                except Exception:
+                    pass
 
             # テンプレート読み込み
             if not os.path.exists(TEMPLATE_PATH):
