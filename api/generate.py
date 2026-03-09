@@ -40,20 +40,22 @@ def fetch_yahoo_quote_data(ticker_code: str) -> dict:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             html = resp.read().decode("utf-8")
-        m = re.search(r'window\.__PRELOADED_STATE__\s*=\s*(\{.*?\});', html, re.DOTALL)
+        # HTML から直接スクレイピング
+        m = re.search(
+            r'発行済株式数.*?<span[^>]*class="StyledNumber__value[^"]*"[^>]*>([\d,]+)</span>',
+            html, re.DOTALL)
         if m:
-            state = json.loads(m.group(1))
-            ref = state.get("mainStocksDetail", {}).get("referenceIndex", {})
-            shares_str = ref.get("sharesIssued", "")
-            if shares_str:
-                result["shares_outstanding"] = int(shares_str.replace(",", ""))
-            dps_str = ref.get("dps", "")
-            if dps_str:
-                dps_val = float(dps_str)
-                result["dividend_per_share"] = int(dps_val)
-            yield_str = ref.get("shareDividendYield", "")
-            if yield_str:
-                result["dividend_yield"] = round(float(yield_str), 2)
+            result["shares_outstanding"] = int(m.group(1).replace(",", ""))
+        m2 = re.search(
+            r'配当利回り.*?<span[^>]*class="StyledNumber__value[^"]*"[^>]*>([\d.]+)</span>',
+            html, re.DOTALL)
+        if m2:
+            result["dividend_yield"] = round(float(m2.group(1)), 2)
+        m3 = re.search(
+            r'1株配当.*?<span[^>]*class="StyledNumber__value[^"]*"[^>]*>([\d.]+)</span>',
+            html, re.DOTALL)
+        if m3:
+            result["dividend_per_share"] = int(float(m3.group(1)))
     except Exception:
         pass
 
