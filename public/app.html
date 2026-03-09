@@ -804,36 +804,29 @@
           throw new Error(msg);
         }
 
-        const docxBlob = await res.blob();
+        const zipBlob = await res.blob();
         const disposition = res.headers.get('Content-Disposition') || '';
-        let docxFilename = '報告書_' + ticker + '.docx';
+        let zipFilename = '算定資料_' + ticker + '.zip';
         const match = disposition.match(/filename\*=UTF-8''(.+)/);
-        if (match) docxFilename = decodeURIComponent(match[1]);
+        if (match) zipFilename = decodeURIComponent(match[1]);
 
-        // βスクリーンショット
-        let betaBlob = null;
+        // βスクリーンショットがあればZIPに追加
         const betaInput = document.getElementById('betaImage');
         if (betaInput.files.length > 0) {
-          betaBlob = betaInput.files[0];
-        }
-
-        // β画像があればZIPにまとめてダウンロード
-        if (betaBlob) {
-          const zip = new JSZip();
+          const betaBlob = betaInput.files[0];
+          const serverZip = await JSZip.loadAsync(zipBlob);
           const cn3 = document.getElementById('companyName').textContent || '';
           const pre = cn3 ? cn3 + '_' : '';
           const ext = betaBlob.name.split('.').pop() || 'png';
-          zip.file(pre + 'β値スクリーンショット.' + ext, betaBlob);
-          const zipBlob = await zip.generateAsync({ type: 'blob' });
-          const companyName = document.getElementById('companyName').textContent || ticker;
-          downloadBlob(zipBlob, companyName + '_算定資料.zip');
+          serverZip.file(pre + 'β値スクリーンショット.' + ext, betaBlob);
+          const mergedBlob = await serverZip.generateAsync({ type: 'blob' });
+          downloadBlob(mergedBlob, zipFilename);
+        } else {
+          downloadBlob(zipBlob, zipFilename);
         }
 
-        // 報告書docxをダウンロード
-        downloadBlob(docxBlob, docxFilename);
-
         status.className = 'status success';
-        status.textContent = docxFilename + (betaBlob ? ' + 算定資料ZIP' : '') + ' をダウンロードしました。';
+        status.textContent = zipFilename + ' をダウンロードしました。';
       } catch (e) {
         status.className = 'status error';
         status.textContent = 'エラー: ' + e.message;

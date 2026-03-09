@@ -4,12 +4,14 @@ POST /api/generate
 """
 
 import json
+import io
 import os
 import re
 import math
 import urllib.request
 import urllib.parse
 import tempfile
+import zipfile
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from http.server import BaseHTTPRequestHandler
@@ -221,6 +223,8 @@ def fetch_stock_data(ticker_code: str, eval_date: str):
         "volatility": round(annual_vol * 100, 2),
         "vol_start_label": vol_start_label,
         "vol_end_label": vol_end_label,
+        "hist_monthly": hist_monthly,
+        "hist_daily": hist_daily,
         "median_daily_volume": median_volume,
         "liquidity_shares": liquidity_shares,
         "volume_start_date": volume_start,
@@ -259,6 +263,182 @@ def insert_paragraph_after(paragraph, text, font_name="ＭＳ Ｐ明朝", font_s
     new_p.append(run_elem)
     paragraph._element.addnext(new_p)
     return new_p
+
+
+def build_volatility_excel(hist_monthly, company_name):
+    """yfinance月次データからボラティリティ計算Excelを生成"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ボラティリティ計算"
+
+    title_font = Font(name="ＭＳ Ｐゴシック", size=14, bold=True)
+    header_font = Font(name="ＭＳ Ｐゴシック", size=11, bold=True)
+    data_font = Font(name="ＭＳ Ｐゴシック", size=11)
+    formula_font = Font(name="ＭＳ Ｐゴシック", size=11, color="0000CC")
+    result_font = Font(name="ＭＳ Ｐゴシック", size=12, bold=True, color="CC0000")
+    header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    result_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    ws.merge_cells("A1:E1")
+    ws["A1"] = f"ボラティリティの計算過程（{company_name}）"
+    ws["A1"].font = title_font
+
+    headers = [("A", "対象月"), ("B", "株価"), ("C", "対数株価"), ("D", "対数収益率")]
+    for col, label in headers:
+        cell = ws[f"{col}3"]
+        cell.value = label
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center")
+
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+
+    # データ行（降順）
+    data_rows = []
+    for idx, row in hist_monthly.iterrows():
+        date_str = idx.strftime("%Y/%m")
+        price = round(float(row["Close"]), 2)
+        data_rows.append((date_str, price))
+    data_rows.sort(key=lambda x: x[0], reverse=True)
+
+    n = len(data_rows)
+    for i, (dt, price) in enumerate(data_rows):
+        r = 4 + i
+        ws[f"A{r}"] = dt
+        ws[f"A{r}"].font = data_font
+        ws[f"A{r}"].border = thin_border
+        ws[f"B{r}"] = price
+        ws[f"B{r}"].font = data_font
+        ws[f"B{r}"].border = thin_border
+        ws[f"B{r}"].number_format = "#,##0.00"
+        ws[f"C{r}"] = f"=LN(B{r})"
+        ws[f"C{r}"].font = formula_font
+        ws[f"C{r}"].border = thin_border
+        ws[f"C{r}"].number_format = "0.0000000"
+        if i == n - 1:
+            ws[f"D{r}"] = ""
+        else:
+            ws[f"D{r}"] = f"=C{r}-C{r+1}"
+            ws[f"D{r}"].number_format = "0.000%"
+        ws[f"D{r}"].font = formula_font if i < n - 1 else data_font
+        ws[f"D{r}"].border = thin_border
+
+    end_r = 3 + n
+    ret_range = f"D4:D{end_r - 1}"
+    calc_r = end_r + 2
+    ws[f"A{calc_r}"] = "【ボラティリティ計算】"
+    ws[f"A{calc_r}"].font = header_font
+
+    r1 = calc_r + 1
+    ws[f"A{r1}"] = "月次σ"
+    ws[f"A{r1}"].font = data_font
+    ws[f"B{r1}"] = f"=STDEVP({ret_range})"
+    ws[f"B{r1}"].font = result_font
+    ws[f"B{r1}"].number_format = "0.000000"
+    ws[f"B{r1}"].fill = result_fill
+    ws[f"B{r1}"].border = thin_border
+
+    r2 = r1 + 1
+    ws[f"A{r2}"] = "年率σ"
+    ws[f"A{r2}"].font = data_font
+    ws[f"B{r2}"] = f"=B{r1}*SQRT(12)"
+    ws[f"B{r2}"].font = result_font
+    ws[f"B{r2}"].number_format = "0.00%"
+    ws[f"B{r2}"].fill = result_fill
+    ws[f"B{r2}"].border = thin_border
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def build_volume_excel(hist_daily, company_name):
+    """yfinance日次データから出来高中央値Excelを生成"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "出来高データ"
+
+    title_font = Font(name="ＭＳ Ｐゴシック", size=14, bold=True)
+    header_font = Font(name="ＭＳ Ｐゴシック", size=11, bold=True)
+    data_font = Font(name="ＭＳ Ｐゴシック", size=11)
+    result_font = Font(name="ＭＳ Ｐゴシック", size=12, bold=True, color="CC0000")
+    header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    result_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    volumes = [int(row["Volume"]) for _, row in hist_daily.iterrows()]
+    median_vol = int(np.median(volumes))
+    liquidity = math.ceil(median_vol * 0.1)
+
+    dates = [idx.strftime("%Y/%m/%d") for idx in hist_daily.index]
+    start_d = dates[-1] if dates else ""
+    end_d = dates[0] if dates else ""
+
+    ws["A1"] = f"日次売買高の中央値（{company_name}）"
+    ws["A1"].font = title_font
+    ws["B1"] = median_vol
+    ws["B1"].font = result_font
+    ws["B1"].fill = result_fill
+    ws["C1"] = "株"
+    ws["C1"].font = result_font
+    ws["A2"] = f"対象期間: {start_d}～{end_d}"
+    ws["A2"].font = data_font
+
+    ws["A4"] = "株価データ"
+    ws["A4"].font = header_font
+
+    headers = [("A", "企業・業界"), ("B", f"{company_name}")]
+    ws["A6"] = "企業・業界"
+    ws["A6"].font = header_font
+    ws["B6"] = company_name
+    ws["B6"].font = data_font
+
+    col_headers = [("A", "日付"), ("B", "終値(調整後)"), ("C", "指数"), ("D", "出来高(調整後)")]
+    for col, label in col_headers:
+        c = ws[f"{col}9"]
+        c.value = label
+        c.font = header_font
+        c.fill = header_fill
+        c.border = thin_border
+
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 14
+    ws.column_dimensions["D"].width = 16
+
+    for i, (idx, row) in enumerate(hist_daily.iloc[::-1].iterrows()):
+        r = 10 + i
+        ws[f"A{r}"] = idx.strftime("%Y/%m/%d")
+        ws[f"A{r}"].font = data_font
+        ws[f"A{r}"].border = thin_border
+        ws[f"B{r}"] = round(float(row["Close"]), 2)
+        ws[f"B{r}"].font = data_font
+        ws[f"B{r}"].border = thin_border
+        ws[f"B{r}"].number_format = "#,##0.00"
+        ws[f"D{r}"] = int(row["Volume"])
+        ws[f"D{r}"].font = data_font
+        ws[f"D{r}"].border = thin_border
+        ws[f"D{r}"].number_format = "#,##0"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def replace_in_runs(paragraph, old_text, new_text):
@@ -513,26 +693,39 @@ class handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
 
-            # 一時ファイルに保存して返す
+            # 報告書を保存
             with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
                 doc.save(tmp.name)
                 tmp_path = tmp.name
-
             with open(tmp_path, "rb") as f:
                 docx_bytes = f.read()
             os.unlink(tmp_path)
 
             eval_ym = eval_dt.strftime("%Y%m")
-            filename = f"{eval_ym}_新株予約権評価報告書_株式会社{company_name_jp}.docx"
+            docx_filename = f"{eval_ym}_新株予約権評価報告書_株式会社{company_name_jp}.docx"
+
+            # ボラティリティ・出来高のExcelを生成
+            vol_excel = build_volatility_excel(data["hist_monthly"], company_name_jp)
+            volume_excel = build_volume_excel(data["hist_daily"], company_name_jp)
+
+            # ZIPにまとめて返す
+            import zipfile
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(docx_filename, docx_bytes)
+                zf.writestr(f"{company_name_jp}_ボラティリティ計算.xlsx", vol_excel)
+                zf.writestr(f"{company_name_jp}_出来高中央値.xlsx", volume_excel)
+            zip_bytes = zip_buf.getvalue()
+
+            zip_filename = f"{eval_ym}_株式会社{company_name_jp}_算定資料.zip"
 
             self.send_response(200)
-            self.send_header("Content-Type",
-                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            self.send_header("Content-Type", "application/zip")
             self.send_header("Content-Disposition",
-                             f"attachment; filename*=UTF-8''{urllib.parse.quote(filename)}")
-            self.send_header("Content-Length", str(len(docx_bytes)))
+                             f"attachment; filename*=UTF-8''{urllib.parse.quote(zip_filename)}")
+            self.send_header("Content-Length", str(len(zip_bytes)))
             self.end_headers()
-            self.wfile.write(docx_bytes)
+            self.wfile.write(zip_bytes)
 
         except Exception as e:
             self.send_response(500)
