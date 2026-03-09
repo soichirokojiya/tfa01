@@ -702,6 +702,7 @@ class handler(BaseHTTPRequestHandler):
             exercise_end = body.get("exercise_end", "")
             assignee = body.get("assignee", "")
             resolution_date = body.get("resolution_date", "")
+            warrant_round = body.get("warrant_round", "")
             warrant_total = body.get("warrant_total", "").replace(",", "")
             issuable_shares = body.get("issuable_shares", "").replace(",", "")
             fair_value_str = body.get("fair_value_per_share", "")
@@ -847,6 +848,10 @@ class handler(BaseHTTPRequestHandler):
                 except ValueError:
                     # 「未定」等のテキストの場合はそのまま置換
                     replacements.append(("2026年●月●日", resolution_date))
+            if warrant_round:
+                # 「第1回」「1」どちらでも対応
+                round_text = warrant_round if "第" in warrant_round else f"第{warrant_round}回"
+                replacements.append(("第●回", round_text))
             if warrant_total:
                 replacements.append(("●個", f"{int(warrant_total):,}個"))
             if issuable_shares:

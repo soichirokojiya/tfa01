@@ -188,6 +188,8 @@
     <label for="assignee">割当先</label>
     <textarea id="assignee" rows="3" placeholder="例:&#10;ORCHID PLUS PTE.LTD.&#10;KAY LEO BROTHERS LIMITED&#10;株式会社エビス商事"></textarea>
 
+    <input type="hidden" id="warrantRound" value="">
+
     <label for="resolutionDate">決議日</label>
     <p class="hint">日付（例: 2026-03-31）または「未定」等のテキスト</p>
     <input type="text" id="resolutionDate" placeholder="例: 2026-03-31 または 未定">
@@ -353,6 +355,7 @@
           ['exerciseStart', data.exercise_start],
           ['exerciseEnd', data.exercise_end],
           ['assignee', data.assignee],
+          ['warrantRound', data.warrant_round],
           ['resolutionDate', data.resolution_date],
           ['warrantTotal', warrantDisplay],
           ['issuableShares', data.issuable_shares],
@@ -878,6 +881,7 @@
         exercise_end: exerciseEnd,
         assignee: document.getElementById('assignee').value.trim(),
         resolution_date: document.getElementById('resolutionDate').value,
+        warrant_round: document.getElementById('warrantRound').value.trim(),
         warrant_total: document.getElementById('warrantTotal').value.trim(),
         issuable_shares: document.getElementById('issuableShares').value.trim(),
         fair_value_per_share: document.getElementById('fairValue').value.trim(),
