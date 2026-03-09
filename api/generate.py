@@ -805,18 +805,35 @@ class handler(BaseHTTPRequestHandler):
             if special_terms:
                 try:
                     cell = doc.tables[1].rows[6].cells[1]
-                    # 既存段落のテキストをクリアして新しいテキストを設定
-                    for i, para in enumerate(cell.paragraphs):
+                    # 既存段落・runを全てクリア
+                    for para in cell.paragraphs:
                         for run in para.runs:
                             run.text = ""
-                    # 最初の段落に特約事項テキストを設定（フォントサイズ11pt）
+                    # 最初の段落に1行目を設定（フォント11pt保証）
                     lines = special_terms.split("\n")
-                    if cell.paragraphs and cell.paragraphs[0].runs:
-                        cell.paragraphs[0].runs[0].text = lines[0]
-                        cell.paragraphs[0].runs[0].font.size = Pt(11)
+                    first_para = cell.paragraphs[0]
+                    if first_para.runs:
+                        first_para.runs[0].text = lines[0]
+                        first_para.runs[0].font.size = Pt(11)
+                        first_para.runs[0].font.name = "ＭＳ Ｐ明朝"
+                        rPr = first_para.runs[0]._element.find(qn('w:rPr'))
+                        if rPr is not None:
+                            rFonts = rPr.find(qn('w:rFonts'))
+                            if rFonts is None:
+                                rFonts = rPr.makeelement(qn('w:rFonts'), {})
+                                rPr.insert(0, rFonts)
+                            rFonts.set(qn('w:eastAsia'), "ＭＳ Ｐ明朝")
                     else:
-                        cell.paragraphs[0].text = lines[0]
-                    # 残りの行は新規段落追加
+                        # runがない場合は新規作成
+                        run = first_para.add_run(lines[0])
+                        run.font.size = Pt(11)
+                        run.font.name = "ＭＳ Ｐ明朝"
+                        rPr = run._element.find(qn('w:rPr'))
+                        if rPr is not None:
+                            rFonts = rPr.find(qn('w:rFonts'))
+                            if rFonts is not None:
+                                rFonts.set(qn('w:eastAsia'), "ＭＳ Ｐ明朝")
+                    # 残りの行は新規段落追加（font_size=11がデフォルト）
                     for line in lines[1:]:
                         insert_paragraph_after(cell.paragraphs[-1], line)
                 except Exception:
