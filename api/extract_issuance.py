@@ -26,7 +26,7 @@ def extract_from_text(text: str) -> dict:
         "- resolution_date: 決議日（YYYY-MM-DD形式、未定の場合は「未定」）\n"
         "- warrant_total: 新株予約権の総数（数字のみ、カンマなし）\n"
         "- issuable_shares: 行使による発行株式総数（数字のみ、カンマなし。見つからない場合は空文字）\n"
-        "- special_terms: 査定に関連する特約条項（取得条項、行使条件等があればそのまま記載）\n"
+        "- special_terms: 査定に関連する特約条項（取得条項、行使条件等があれば原文を一字一句そのまま記載。要約・省略しないこと）\n"
         "- company_name: 発行会社名（「株式会社」を含む正式名称）\n\n"
         "JSONのみ返してください。説明は不要です。\n\n"
         "---\n"

@@ -36,7 +36,7 @@ TEMPLATE_PATH = next((p for p in _candidates if os.path.exists(p)), _candidates[
 
 def fetch_jsda_bond(eval_dt, exercise_end_dt) -> dict:
     """JSDAサイトから売買参考統計値をDLし、権利行使期間終了に最も近い長期国債を返す"""
-    result = {"name": "", "maturity": "", "yield_value": ""}
+    result = {"name": "", "maturity": "", "yield_value": "", "all_bonds": []}
     try:
         import xlrd
         # ファイル名: S + 和暦2桁 + MMDD
@@ -48,7 +48,8 @@ def fetch_jsda_bond(eval_dt, exercise_end_dt) -> dict:
             data = resp.read()
         wb = xlrd.open_workbook(file_contents=data)
         ws = wb.sheet_by_index(0)
-        # 権利行使期間終了日に最も近い長期国債を探す
+        # 全長期国債データを収集
+        all_bonds = []
         best = None
         for r in range(1, ws.nrows):
             name = str(ws.cell_value(r, 2))
@@ -63,8 +64,18 @@ def fetch_jsda_bond(eval_dt, exercise_end_dt) -> dict:
             except (ValueError, TypeError):
                 continue
             diff = abs((mat_dt - exercise_end_dt).days)
+            bond_entry = {
+                "name": name.strip(),
+                "maturity": mat_dt,
+                "yield_value": float(yield_val),
+                "diff_days": diff,
+            }
+            all_bonds.append(bond_entry)
             if best is None or diff < best[0]:
                 best = (diff, name.strip(), mat_dt, float(yield_val))
+        # 償還日順にソート
+        all_bonds.sort(key=lambda x: x["maturity"])
+        result["all_bonds"] = all_bonds
         if best:
             result["name"] = best[1]
             result["maturity"] = best[2].strftime("%Y-%m-%d")
@@ -459,6 +470,104 @@ def build_volume_excel(hist_daily, company_name):
     return buf.getvalue()
 
 
+def build_bond_excel(all_bonds, eval_dt, exercise_end_dt, selected_name):
+    """JSDA長期国債データからリスクフリーレートExcelを生成"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "リスクフリーレート"
+
+    title_font = Font(name="ＭＳ Ｐゴシック", size=14, bold=True)
+    header_font = Font(name="ＭＳ Ｐゴシック", size=11, bold=True)
+    data_font = Font(name="ＭＳ Ｐゴシック", size=11)
+    selected_font = Font(name="ＭＳ Ｐゴシック", size=11, bold=True, color="CC0000")
+    header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    selected_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    ws.merge_cells("A1:E1")
+    ws["A1"] = "リスクフリーレートの選定"
+    ws["A1"].font = title_font
+
+    ws["A3"] = "データソース"
+    ws["A3"].font = header_font
+    ws["B3"] = "日本証券業協会 売買参考統計値"
+    ws["B3"].font = data_font
+
+    ws["A4"] = "基準日"
+    ws["A4"].font = header_font
+    ws["B4"] = fmt_date_jp(eval_dt)
+    ws["B4"].font = data_font
+
+    ws["A5"] = "権利行使期間終了日"
+    ws["A5"].font = header_font
+    ws["B5"] = fmt_date_jp(exercise_end_dt)
+    ws["B5"].font = data_font
+
+    # ヘッダー行
+    headers = [("A", "銘柄名"), ("B", "償還日"), ("C", "利回り(%)"), ("D", "満期差(日)")]
+    for col, label in headers:
+        cell = ws[f"{col}7"]
+        cell.value = label
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center")
+
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 14
+
+    for i, bond in enumerate(all_bonds):
+        r = 8 + i
+        is_selected = bond["name"] == selected_name
+        font = selected_font if is_selected else data_font
+        fill = selected_fill if is_selected else PatternFill()
+
+        ws[f"A{r}"] = bond["name"]
+        ws[f"A{r}"].font = font
+        ws[f"A{r}"].border = thin_border
+        if is_selected:
+            ws[f"A{r}"].fill = fill
+
+        ws[f"B{r}"] = bond["maturity"].strftime("%Y/%m/%d")
+        ws[f"B{r}"].font = font
+        ws[f"B{r}"].border = thin_border
+        if is_selected:
+            ws[f"B{r}"].fill = fill
+
+        ws[f"C{r}"] = bond["yield_value"]
+        ws[f"C{r}"].font = font
+        ws[f"C{r}"].border = thin_border
+        ws[f"C{r}"].number_format = "0.000"
+        if is_selected:
+            ws[f"C{r}"].fill = fill
+
+        ws[f"D{r}"] = bond["diff_days"]
+        ws[f"D{r}"].font = font
+        ws[f"D{r}"].border = thin_border
+        ws[f"D{r}"].number_format = "#,##0"
+        if is_selected:
+            ws[f"D{r}"].fill = fill
+
+    # 選定結果
+    end_r = 8 + len(all_bonds) + 1
+    ws[f"A{end_r}"] = "【選定銘柄】"
+    ws[f"A{end_r}"].font = header_font
+    ws[f"A{end_r + 1}"] = "権利行使期間終了日に最も償還日が近い長期国債を選定"
+    ws[f"A{end_r + 1}"].font = data_font
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def replace_in_runs(paragraph, old_text, new_text):
     full_text = "".join(run.text for run in paragraph.runs)
     if old_text not in full_text:
@@ -544,12 +653,14 @@ class handler(BaseHTTPRequestHandler):
             profile = fetch_company_profile(ticker_code)
             data = fetch_stock_data(ticker_code, eval_date, exercise_end)
 
-            # 国債データ自動取得（手動入力がない場合）
-            if not bond_yield and exercise_end:
+            # 国債データ自動取得
+            jsda_all_bonds = []
+            if exercise_end:
                 try:
                     ex_end_dt = datetime.strptime(exercise_end, "%Y-%m-%d")
                     jsda = fetch_jsda_bond(eval_dt, ex_end_dt)
-                    if jsda["yield_value"]:
+                    jsda_all_bonds = jsda.get("all_bonds", [])
+                    if not bond_yield and jsda["yield_value"]:
                         bond_name = bond_name or jsda["name"]
                         bond_maturity = bond_maturity or jsda["maturity"]
                         bond_yield = jsda["yield_value"]
@@ -722,7 +833,7 @@ class handler(BaseHTTPRequestHandler):
             eval_ym = eval_dt.strftime("%Y%m")
             docx_filename = f"{eval_ym}_新株予約権評価報告書_株式会社{company_name_jp}.docx"
 
-            # ボラティリティ・出来高のExcelを生成
+            # ボラティリティ・出来高・国債のExcelを生成
             vol_excel = build_volatility_excel(data["hist_monthly"], company_name_jp)
             volume_excel = build_volume_excel(data["hist_daily"], company_name_jp)
 
@@ -733,6 +844,10 @@ class handler(BaseHTTPRequestHandler):
                 zf.writestr(docx_filename, docx_bytes)
                 zf.writestr(f"{company_name_jp}_ボラティリティ計算.xlsx", vol_excel)
                 zf.writestr(f"{company_name_jp}_出来高中央値.xlsx", volume_excel)
+                if jsda_all_bonds and exercise_end:
+                    bond_excel = build_bond_excel(
+                        jsda_all_bonds, eval_dt, ex_end_dt, bond_name)
+                    zf.writestr(f"{company_name_jp}_リスクフリーレート.xlsx", bond_excel)
             zip_bytes = zip_buf.getvalue()
 
             zip_filename = f"{eval_ym}_株式会社{company_name_jp}_算定資料.zip"
