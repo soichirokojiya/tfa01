@@ -269,6 +269,18 @@
     addCommaFormat('warrantTotal');
     addCommaFormat('issuableShares');
 
+    // 総個数入力時に株式総数を自動計算（×100）
+    document.getElementById('warrantTotal').addEventListener('input', function() {
+      const raw = this.value.replace(/,/g, '');
+      if (raw && !isNaN(raw)) {
+        const shares = parseInt(raw) * 100;
+        const el = document.getElementById('issuableShares');
+        const parts = String(shares).split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        el.value = parts.join('.');
+      }
+    });
+
     // 上場コード入力時に会社名を自動取得
     let lookupTimer = null;
     document.getElementById('ticker').addEventListener('input', function() {
