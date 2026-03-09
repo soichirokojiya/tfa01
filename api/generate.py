@@ -283,6 +283,8 @@ class handler(BaseHTTPRequestHandler):
             fair_value_str = body.get("fair_value_per_share", "")
             special_terms = body.get("special_terms", "")
             market_risk_premium = body.get("market_risk_premium", "")
+            default_rate = body.get("default_rate", "")
+            credit_cost_input = body.get("credit_cost", "")
             bond_name = body.get("bond_name", "")
             bond_maturity = body.get("bond_maturity", "")
             bond_yield = body.get("bond_yield", "")
@@ -373,11 +375,24 @@ class handler(BaseHTTPRequestHandler):
             if beta_value:
                 replacements.append(("0.567", str(beta_value)))
 
+            # デフォルト率
+            default_rate_num = float(default_rate) if default_rate else 17.92
+            if default_rate and default_rate != "17.92":
+                replacements.append(("17.92%", f"{default_rate_num}%"))
+                # 回収率: max(59.1 - 8.356 * デフォルト率, 0)
+                recovery = max(59.1 - 8.356 * default_rate_num, 0)
+                recovery_str = f"{recovery:.1f}%" if recovery > 0 else "0%"
+                replacements.append(("0%\n", f"{recovery_str}\n"))
+
+            # クレジットコスト
+            if credit_cost_input and credit_cost_input != "21.83":
+                replacements.append(("21.83%", f"{credit_cost_input}%"))
+
             # CAPM計算式の自動計算
             rfr = float(bond_yield) if bond_yield else 1.591
             mrp = float(market_risk_premium) if market_risk_premium else 9.3
             beta_num = float(beta_value) if beta_value else 0.567
-            credit_cost = 21.83  # テンプレートのクレジット・コスト
+            credit_cost = float(credit_cost_input) if credit_cost_input else 21.83
             capm_result = round(rfr + mrp * beta_num + credit_cost, 2)
             replacements.append((
                 "= 1.591% + 9.3%\u00d7 0.567 + 21.83%",

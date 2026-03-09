@@ -200,7 +200,13 @@
     <hr class="separator">
 
     <label for="marketRiskPremium">市場リスクプレミアム（%）</label>
-    <input type="text" id="marketRiskPremium">
+    <input type="text" id="marketRiskPremium" value="9.3">
+
+    <label for="defaultRate">1年目のデフォルト率（%）</label>
+    <input type="text" id="defaultRate" value="17.92">
+
+    <label for="creditCost">クレジットコスト（%）</label>
+    <input type="text" id="creditCost" value="21.83">
 
     <hr class="separator">
 
@@ -835,6 +841,8 @@
         fair_value_per_share: document.getElementById('fairValue').value.trim(),
         special_terms: document.getElementById('specialTerms').value.trim(),
         market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
+        default_rate: document.getElementById('defaultRate').value.trim(),
+        credit_cost: document.getElementById('creditCost').value.trim(),
         bond_name: bondInfo ? bondInfo.name : '',
         bond_maturity: bondInfo ? bondInfo.maturity : '',
         bond_yield: bondInfo ? bondInfo.yield_value : '',
