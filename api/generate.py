@@ -271,6 +271,10 @@ def fetch_stock_data(ticker_code: str, eval_date: str, exercise_end: str = ""):
         "volatility": round(annual_vol * 100, 2),
         "vol_start_label": vol_start_label,
         "vol_end_label": vol_end_label,
+        "vol_start_month": vol_start_month,
+        "vol_end_month": vol_end_month,
+        "months_to_maturity": months_to_maturity,
+        "days_to_maturity": days_to_maturity,
         "hist_monthly": hist_monthly,
         "hist_daily": hist_daily,
         "median_daily_volume": median_volume,
@@ -642,6 +646,101 @@ def build_bond_excel(all_bonds, eval_dt, exercise_end_dt, selected_name):
     return buf.getvalue()
 
 
+def build_period_excel(eval_dt, ex_end_dt, data):
+    """算定期間サマリExcelを生成"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "算定期間"
+
+    title_font = Font(name="ＭＳ Ｐゴシック", size=14, bold=True)
+    header_font = Font(name="ＭＳ Ｐゴシック", size=11, bold=True)
+    data_font = Font(name="ＭＳ Ｐゴシック", size=11)
+    val_font = Font(name="ＭＳ Ｐゴシック", size=11, bold=True, color="CC0000")
+    header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    val_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    ws.column_dimensions["A"].width = 28
+    ws.column_dimensions["B"].width = 22
+    ws.column_dimensions["C"].width = 22
+    ws.column_dimensions["D"].width = 14
+
+    ws.merge_cells("A1:D1")
+    ws["A1"] = "算定期間サマリ"
+    ws["A1"].font = title_font
+
+    # 基本情報
+    r = 3
+    items = [
+        ("算定基準日", fmt_date_jp(eval_dt)),
+        ("権利行使期間満期", fmt_date_jp(ex_end_dt)),
+        ("基準日から満期までの日数", f"{data['days_to_maturity']}日"),
+        ("基準日から満期までの月数", f"{data['months_to_maturity']}ヶ月"),
+    ]
+    for label, value in items:
+        ws[f"A{r}"] = label
+        ws[f"A{r}"].font = header_font
+        ws[f"A{r}"].border = thin_border
+        ws[f"A{r}"].fill = header_fill
+        ws[f"B{r}"] = value
+        ws[f"B{r}"].font = val_font
+        ws[f"B{r}"].border = thin_border
+        ws[f"B{r}"].fill = val_fill
+        r += 1
+
+    r += 1
+    # 期間詳細テーブル
+    headers = ["データ種類", "開始", "終了", "期間"]
+    for i, h in enumerate(headers):
+        col = chr(65 + i)
+        ws[f"{col}{r}"] = h
+        ws[f"{col}{r}"].font = header_font
+        ws[f"{col}{r}"].fill = header_fill
+        ws[f"{col}{r}"].border = thin_border
+        ws[f"{col}{r}"].alignment = Alignment(horizontal="center")
+
+    vol_start = data["vol_start_month"]
+    vol_end = data["vol_end_month"]
+    vol_s_label = f"{vol_start.year}/{vol_start.month:02d}"
+    vol_e_label = f"{vol_end.year}/{vol_end.month:02d}"
+
+    daily_start = data["volume_start_date"]
+    daily_end = data["volume_end_date"]
+    ds_label = f"{daily_start.year}/{daily_start.month:02d}/{daily_start.day:02d}"
+    de_label = f"{daily_end.year}/{daily_end.month:02d}/{daily_end.day:02d}"
+
+    rows = [
+        ("ボラティリティ（月次）", vol_s_label, vol_e_label, f"{data['months_to_maturity']}ヶ月"),
+        ("出来高（日次）", ds_label, de_label, f"{data['days_to_maturity']}日"),
+        ("β値（日次）", ds_label, de_label, f"{data['days_to_maturity']}日"),
+    ]
+
+    for row_data in rows:
+        r += 1
+        for i, val in enumerate(row_data):
+            col = chr(65 + i)
+            ws[f"{col}{r}"] = val
+            ws[f"{col}{r}"].font = data_font
+            ws[f"{col}{r}"].border = thin_border
+
+    r += 2
+    ws[f"A{r}"] = "※ ボラティリティ: 基準日の前月から満期月数分を遡った月次データ"
+    ws[f"A{r}"].font = Font(name="ＭＳ Ｐゴシック", size=9, color="666666")
+    r += 1
+    ws[f"A{r}"] = "※ 出来高・β値: 基準日から満期日数分を遡った日次データ"
+    ws[f"A{r}"].font = Font(name="ＭＳ Ｐゴシック", size=9, color="666666")
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def replace_in_runs(paragraph, old_text, new_text):
     full_text = "".join(run.text for run in paragraph.runs)
     if old_text not in full_text:
@@ -964,6 +1063,9 @@ class handler(BaseHTTPRequestHandler):
                     bond_excel = build_bond_excel(
                         jsda_all_bonds, eval_dt, ex_end_dt, bond_name)
                     zf.writestr(f"{company_name_jp}_リスクフリーレート.xlsx", bond_excel)
+                if ex_end_dt:
+                    period_excel = build_period_excel(eval_dt, ex_end_dt, data)
+                    zf.writestr(f"{company_name_jp}_算定期間.xlsx", period_excel)
             zip_bytes = zip_buf.getvalue()
 
             zip_filename = f"{eval_ym}_株式会社{company_name_jp}_算定資料.zip"
