@@ -618,7 +618,7 @@
         const name = String(nameCell.v || '').trim();
         if (!name.startsWith('長期国債') || name.includes('超長期') || name.includes('WI')) continue;
         const matCell = ws[XLSX.utils.encode_cell({r, c: 3})];
-        const yieldCell = ws[XLSX.utils.encode_cell({r, c: 7})];
+        const yieldCell = ws[XLSX.utils.encode_cell({r, c: 11})];
         if (!matCell || !yieldCell) continue;
         let matDate;
         if (typeof matCell.v === 'number') matDate = new Date((matCell.v - 25569) * 86400000);
@@ -711,7 +711,7 @@
           const name = String(nameCell.v || '').trim();
           if (!name.startsWith('長期国債') || name.includes('超長期') || name.includes('WI')) continue;
           const matCell = ws[XLSX.utils.encode_cell({r, c: 3})];
-          const yieldCell = ws[XLSX.utils.encode_cell({r, c: 7})];
+          const yieldCell = ws[XLSX.utils.encode_cell({r, c: 11})];
           if (!matCell || !yieldCell) continue;
           let matDate;
           if (typeof matCell.v === 'number') matDate = new Date((matCell.v - 25569) * 86400000);
