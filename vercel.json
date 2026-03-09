@@ -3,7 +3,7 @@
     {
       "src": "api/generate.py",
       "use": "@vercel/python",
-      "config": { "maxDuration": 60 }
+      "config": { "maxDuration": 60, "includeFiles": "template.docx" }
     },
     {
       "src": "api/lookup.py",

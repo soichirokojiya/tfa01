@@ -23,7 +23,13 @@ import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
 
-TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "..", "template.docx")
+# Vercel: テンプレートファイルのパスを複数候補から解決
+_candidates = [
+    os.path.join(os.path.dirname(__file__), "..", "template.docx"),
+    os.path.join(os.path.dirname(__file__), "template.docx"),
+    "/var/task/template.docx",
+]
+TEMPLATE_PATH = next((p for p in _candidates if os.path.exists(p)), _candidates[0])
 
 
 def fetch_yahoo_quote_data(ticker_code: str) -> dict:
@@ -296,6 +302,8 @@ class handler(BaseHTTPRequestHandler):
             data = fetch_stock_data(ticker_code, eval_date)
 
             # テンプレート読み込み
+            if not os.path.exists(TEMPLATE_PATH):
+                raise FileNotFoundError(f"テンプレートが見つかりません: {TEMPLATE_PATH}")
             doc = Document(TEMPLATE_PATH)
 
             # 置換
