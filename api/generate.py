@@ -428,10 +428,10 @@ class handler(BaseHTTPRequestHandler):
             for old, new in replacements:
                 replace_in_document(doc, old, new)
 
-            # 査定に関連する特約条項（Table1 R5 C1）
+            # 査定に関連する特約条項（Table1 R6 C1）
             if special_terms:
                 try:
-                    cell = doc.tables[1].rows[5].cells[1]
+                    cell = doc.tables[1].rows[6].cells[1]
                     # 既存段落のテキストをクリアして新しいテキストを設定
                     for i, para in enumerate(cell.paragraphs):
                         for run in para.runs:
