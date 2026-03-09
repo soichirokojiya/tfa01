@@ -494,7 +494,8 @@
       status.className = 'status loading';
       status.innerHTML = '<span class="spinner"></span>ボラティリティ計算Excel生成中...';
       try {
-        downloadBlob(await buildVolatilityBlob(), 'ボラティリティ計算.xlsx');
+        const cn = document.getElementById('companyName').textContent || '';
+        downloadBlob(await buildVolatilityBlob(), (cn ? cn + '_' : '') + 'ボラティリティ計算.xlsx');
         status.className = 'status success';
         status.textContent = 'ボラティリティ計算Excelをダウンロードしました。';
       } catch (e) {
@@ -609,7 +610,8 @@
       status.className = 'status loading';
       status.innerHTML = '<span class="spinner"></span>出来高中央値Excel生成中...';
       try {
-        downloadBlob(await buildVolumeBlob(), '出来高中央値.xlsx');
+        const cn2 = document.getElementById('companyName').textContent || '';
+        downloadBlob(await buildVolumeBlob(), (cn2 ? cn2 + '_' : '') + '出来高中央値.xlsx');
         status.className = 'status success';
         status.textContent = '出来高中央値Excelをダウンロードしました。';
       } catch (e) {
@@ -899,12 +901,14 @@
         const hasFiles = volBlob || volumeBlob || bondBlob || betaBlob;
         if (hasFiles) {
           const zip = new JSZip();
-          if (volBlob) zip.file('ボラティリティ計算.xlsx', volBlob);
-          if (volumeBlob) zip.file('出来高中央値.xlsx', volumeBlob);
-          if (bondBlob) zip.file('売買参考統計値_ハイライト.xlsx', bondBlob);
+          const cn3 = document.getElementById('companyName').textContent || '';
+          const pre = cn3 ? cn3 + '_' : '';
+          if (volBlob) zip.file(pre + 'ボラティリティ計算.xlsx', volBlob);
+          if (volumeBlob) zip.file(pre + '出来高中央値.xlsx', volumeBlob);
+          if (bondBlob) zip.file(pre + '売買参考統計値_ハイライト.xlsx', bondBlob);
           if (betaBlob) {
             const ext = betaBlob.name.split('.').pop() || 'png';
-            zip.file('β値スクリーンショット.' + ext, betaBlob);
+            zip.file(pre + 'β値スクリーンショット.' + ext, betaBlob);
           }
           const zipBlob = await zip.generateAsync({ type: 'blob' });
           const companyName = document.getElementById('companyName').textContent || ticker;
