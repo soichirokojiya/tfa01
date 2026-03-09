@@ -151,6 +151,14 @@
     <h1>新株予約権評価報告書</h1>
     <p class="subtitle">必要な項目を入力して報告書を生成してください</p>
 
+    <label for="issuanceText">発行要項テキスト（コピペで自動入力）</label>
+    <p class="hint">発行要項の該当部分をコピペすると、各フィールドをAIで自動抽出します</p>
+    <textarea id="issuanceText" rows="6" placeholder="発行要項のテキストを貼り付けてください..."></textarea>
+    <button class="btn-dl" onclick="extractIssuanceData()" id="extractBtn" style="margin-top:4px;">AI抽出</button>
+    <div id="extractResult" style="font-size:13px;color:#2a7d2a;margin-bottom:8px;display:none;"></div>
+
+    <hr class="separator">
+
     <div class="row">
       <div>
         <label for="ticker">上場コード *</label>
@@ -163,14 +171,6 @@
     </div>
 
     <div class="company-name" id="companyName"></div>
-
-    <hr class="separator">
-
-    <label for="issuanceText">発行要項テキスト（コピペで自動入力）</label>
-    <p class="hint">発行要項の該当部分をコピペすると、各フィールドをAIで自動抽出します</p>
-    <textarea id="issuanceText" rows="6" placeholder="発行要項のテキストを貼り付けてください..."></textarea>
-    <button class="btn-dl" onclick="extractIssuanceData()" id="extractBtn" style="margin-top:4px;">AI抽出</button>
-    <div id="extractResult" style="font-size:13px;color:#2a7d2a;margin-bottom:8px;display:none;"></div>
 
     <hr class="separator">
 
@@ -313,7 +313,7 @@
       status.className = 'status loading';
       status.innerHTML = '<span class="spinner"></span>AIで抽出中...';
       try {
-        const res = await fetch('/api/extract_issuance', {
+        const res = await fetch('/api/extract-issuance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text }),
