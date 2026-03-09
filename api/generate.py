@@ -402,8 +402,12 @@ class handler(BaseHTTPRequestHandler):
 
             # ●プレースホルダー（テーブル1）
             if resolution_date:
-                res_dt = datetime.strptime(resolution_date, "%Y-%m-%d")
-                replacements.append(("2026年●月●日", fmt_date_jp(res_dt)))
+                try:
+                    res_dt = datetime.strptime(resolution_date, "%Y-%m-%d")
+                    replacements.append(("2026年●月●日", fmt_date_jp(res_dt)))
+                except ValueError:
+                    # 「未定」等のテキストの場合はそのまま置換
+                    replacements.append(("2026年●月●日", resolution_date))
             if warrant_total:
                 replacements.append(("●個", f"{int(warrant_total):,}個"))
             if issuable_shares:
