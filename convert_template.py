@@ -8,7 +8,7 @@ from docx import Document
 from docx.oxml.ns import qn
 from copy import deepcopy
 
-SOURCE = "/Users/apple/Library/CloudStorage/GoogleDrive-koujiy@souichirou.org/マイドライブ/TFA/倉元製作所/202602/202602v03_新株予約権算定報告書_株式会社倉元製作所.docx"
+SOURCE = "/Users/apple/Library/CloudStorage/GoogleDrive-koujiy@souichirou.org/マイドライブ/TFA/倉元製作所/202602/old/202602v03_新株予約権算定報告書_株式会社倉元製作所.docx"
 OUTPUT = "/Users/apple/tfa01/template.docx"
 
 
@@ -230,6 +230,65 @@ def main():
 
     # ── 空段落 → 改ページ修正 ──
     fix_empty_paragraphs(doc)
+
+    # ── 後処理: ハイパーリンクの青文字スタイルのみ削除（TOC構造は保持）──
+    body = doc.element.body
+    children = list(body)
+    for child in children:
+        tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        if tag != 'p':
+            continue
+        # ハイパーリンク内のrStyle（青文字）だけ除去、ハイパーリンク構造は残す
+        for hl in child.findall(qn('w:hyperlink')):
+            for run in hl.findall(qn('w:r')):
+                rPr = run.find(qn('w:rPr'))
+                if rPr is not None:
+                    for rs in rPr.findall(qn('w:rStyle')):
+                        rPr.remove(rs)
+
+    # ── 後処理: 二重改ページ（PB+BR）を修正 ──
+    children = list(body)
+    for child in children:
+        tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        if tag != 'p':
+            continue
+        pPr = child.find(qn('w:pPr'))
+        has_pb = pPr is not None and pPr.find(qn('w:pageBreakBefore')) is not None
+        if has_pb:
+            for br in child.findall('.//' + qn('w:br')):
+                if br.get(qn('w:type')) == 'page':
+                    br.getparent().remove(br)
+                    print(f"二重改ページ修正: {(''.join(child.itertext()).strip())[:40]}")
+
+    # ── 後処理: 全runにフォントサイズ22を保証 ──
+    children = list(body)
+    for child in children:
+        tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        if tag != 'p':
+            continue
+        for run in child.findall(qn('w:r')):
+            rPr = run.find(qn('w:rPr'))
+            if rPr is None:
+                continue
+            sz = rPr.find(qn('w:sz'))
+            if sz is None:
+                sz_el = rPr.makeelement(qn('w:sz'), {qn('w:val'): '22'})
+                rPr.append(sz_el)
+            szCs = rPr.find(qn('w:szCs'))
+            if szCs is None:
+                szCs_el = rPr.makeelement(qn('w:szCs'), {qn('w:val'): '22'})
+                rPr.append(szCs_el)
+
+    # ── 後処理: 目次タイトルの後にスペース追加 ──
+    children = list(body)
+    for i, child in enumerate(children):
+        text = ''.join(child.itertext()).strip()
+        if text == '目次':
+            if i + 1 < len(children):
+                empty_p = child.makeelement(qn('w:p'), {})
+                body.insert(list(body).index(children[i + 1]), empty_p)
+                print("目次タイトル後にスペース追加")
+            break
 
     # ── 保存 ──
     doc.save(OUTPUT)
