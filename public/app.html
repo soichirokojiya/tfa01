@@ -177,6 +177,9 @@
       </div>
     </div>
 
+    <label for="assignee">割当先</label>
+    <input type="text" id="assignee" placeholder="例: ●●証券株式会社">
+
     <label for="resolutionDate">決議日</label>
     <p class="hint">日付（例: 2026-03-31）または「未定」等のテキスト</p>
     <input type="text" id="resolutionDate" placeholder="例: 2026-03-31 または 未定">
@@ -839,6 +842,7 @@
         eval_date: evalDate,
         exercise_start: document.getElementById('exerciseStart').value,
         exercise_end: exerciseEnd,
+        assignee: document.getElementById('assignee').value.trim(),
         resolution_date: document.getElementById('resolutionDate').value,
         warrant_total: document.getElementById('warrantTotal').value.trim(),
         issuable_shares: document.getElementById('issuableShares').value.trim(),

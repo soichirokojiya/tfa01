@@ -279,6 +279,7 @@ class handler(BaseHTTPRequestHandler):
             # TOPページ入力項目
             exercise_start = body.get("exercise_start", "")
             exercise_end = body.get("exercise_end", "")
+            assignee = body.get("assignee", "")
             resolution_date = body.get("resolution_date", "")
             warrant_total = body.get("warrant_total", "").replace(",", "")
             issuable_shares = body.get("issuable_shares", "").replace(",", "")
@@ -427,6 +428,17 @@ class handler(BaseHTTPRequestHandler):
 
             for old, new in replacements:
                 replace_in_document(doc, old, new)
+
+            # 割当先（Table1 R1 C1）
+            if assignee:
+                try:
+                    cell = doc.tables[1].rows[1].cells[1]
+                    for para in cell.paragraphs:
+                        for run in para.runs:
+                            if "●" in run.text:
+                                run.text = run.text.replace("●", assignee)
+                except Exception:
+                    pass
 
             # 査定に関連する特約条項（Table1 R6 C1）
             if special_terms:
