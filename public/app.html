@@ -219,11 +219,24 @@
     </div>
 
     <label>売買参考統計値（リスクフリーレート用）</label>
-    <p class="hint">日本証券業協会の売買参考統計値 .xls</p>
+    <p class="hint">日本証券業協会の売買参考統計値 .xls（ファイルから自動抽出、または下欄に直接入力）</p>
     <div class="file-row">
       <input type="file" id="bondFile" accept=".xlsx,.xls">
-      <button class="btn-dl" onclick="generateBondExcel()" id="bondBtn">国債ハイライトExcel生成</button>
+      <button class="btn-dl" onclick="extractAndFillBond()" id="bondBtn">国債抽出</button>
     </div>
+    <div id="bondResult" style="font-size:13px;color:#2a7d2a;margin-bottom:8px;display:none;"></div>
+    <div class="row">
+      <div>
+        <label for="bondName">国債銘柄名</label>
+        <input type="text" id="bondName" placeholder="例: 長期国債362">
+      </div>
+      <div>
+        <label for="bondMaturity">償還日</label>
+        <input type="date" id="bondMaturity">
+      </div>
+    </div>
+    <label for="bondYield">利回り（%）</label>
+    <input type="text" id="bondYield" placeholder="例: 1.591">
 
     <label>対指数β</label>
     <p class="hint">スクリーンショットからAI抽出、または直接入力</p>
@@ -605,7 +618,7 @@
         const name = String(nameCell.v || '').trim();
         if (!name.startsWith('長期国債') || name.includes('超長期') || name.includes('WI')) continue;
         const matCell = ws[XLSX.utils.encode_cell({r, c: 3})];
-        const yieldCell = ws[XLSX.utils.encode_cell({r, c: 11})];
+        const yieldCell = ws[XLSX.utils.encode_cell({r, c: 7})];
         if (!matCell || !yieldCell) continue;
         let matDate;
         if (typeof matCell.v === 'number') matDate = new Date((matCell.v - 25569) * 86400000);
@@ -632,9 +645,10 @@
       return new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     }
 
-    async function generateBondExcel() {
+    async function extractAndFillBond() {
       const btn = document.getElementById('bondBtn');
       const status = document.getElementById('status');
+      const resultEl = document.getElementById('bondResult');
       if (document.getElementById('bondFile').files.length === 0) {
         status.className = 'status error';
         status.textContent = '売買参考統計値ファイルを選択してください。';
@@ -647,14 +661,29 @@
       }
       btn.disabled = true;
       status.className = 'status loading';
-      status.innerHTML = '<span class="spinner"></span>国債ハイライトExcel生成中...';
+      status.innerHTML = '<span class="spinner"></span>国債データを抽出中...（大きいファイルは時間がかかります）';
       try {
-        downloadBlob(await buildBondBlob(), '売買参考統計値_ハイライト.xlsx');
+        const bondInfo = await extractBondInfo();
+        if (bondInfo) {
+          document.getElementById('bondName').value = bondInfo.name;
+          document.getElementById('bondMaturity').value = bondInfo.maturity;
+          document.getElementById('bondYield').value = bondInfo.yield_value;
+          resultEl.textContent = `抽出: ${bondInfo.name}（償還 ${bondInfo.maturity}、利回り ${bondInfo.yield_value}%）`;
+          resultEl.style.display = 'block';
+        } else {
+          resultEl.textContent = '国債データを抽出できませんでした。下欄に手動入力してください。';
+          resultEl.style.color = '#c00';
+          resultEl.style.display = 'block';
+        }
+        // ハイライトExcelも生成
+        try {
+          downloadBlob(await buildBondBlob(), '売買参考統計値_ハイライト.xlsx');
+        } catch {}
         status.className = 'status success';
-        status.textContent = '国債ハイライトExcelをダウンロードしました。';
+        status.textContent = bondInfo ? '国債情報を抽出しました。' : '手動入力してください。';
       } catch (e) {
         status.className = 'status error';
-        status.textContent = 'エラー: ' + e.message;
+        status.textContent = 'エラー: ' + e.message + '（手動入力も可能です）';
       } finally {
         btn.disabled = false;
       }
@@ -666,8 +695,11 @@
       const bondInput = document.getElementById('bondFile');
       if (bondInput.files.length === 0 || !exerciseEnd) return null;
       try {
+        console.log('Bond file: reading', bondInput.files[0].name, bondInput.files[0].size, 'bytes');
         const fileData = await bondInput.files[0].arrayBuffer();
+        console.log('Bond file: parsing...');
         const wb = XLSX.read(fileData, { type: 'array' });
+        console.log('Bond file: parsed, sheets:', wb.SheetNames);
         const ws = wb.Sheets[wb.SheetNames[0]];
         const targetDate = new Date(exerciseEnd);
         let closest = null;
@@ -679,7 +711,7 @@
           const name = String(nameCell.v || '').trim();
           if (!name.startsWith('長期国債') || name.includes('超長期') || name.includes('WI')) continue;
           const matCell = ws[XLSX.utils.encode_cell({r, c: 3})];
-          const yieldCell = ws[XLSX.utils.encode_cell({r, c: 11})];
+          const yieldCell = ws[XLSX.utils.encode_cell({r, c: 7})];
           if (!matCell || !yieldCell) continue;
           let matDate;
           if (typeof matCell.v === 'number') matDate = new Date((matCell.v - 25569) * 86400000);
@@ -744,7 +776,21 @@
         } catch (e) { console.error('Beta extraction error:', e); }
       }
 
-      const bondInfo = await extractBondInfo();
+      // 国債情報: 入力欄の値を優先、空ならファイルから抽出を試行
+      const bondNameInput = document.getElementById('bondName').value.trim();
+      const bondMaturityInput = document.getElementById('bondMaturity').value;
+      const bondYieldInput = document.getElementById('bondYield').value.trim();
+      let bondInfo = null;
+      if (bondNameInput || bondYieldInput) {
+        bondInfo = { name: bondNameInput, maturity: bondMaturityInput, yield_value: bondYieldInput };
+      } else {
+        bondInfo = await extractBondInfo();
+        if (bondInfo) {
+          document.getElementById('bondName').value = bondInfo.name;
+          document.getElementById('bondMaturity').value = bondInfo.maturity;
+          document.getElementById('bondYield').value = bondInfo.yield_value;
+        }
+      }
       const exerciseEnd = document.getElementById('exerciseEnd').value;
 
       // SPEEDAデータからボラティリティを計算
