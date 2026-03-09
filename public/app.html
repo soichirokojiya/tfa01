@@ -166,6 +166,14 @@
 
     <hr class="separator">
 
+    <label for="issuanceText">発行要項テキスト（コピペで自動入力）</label>
+    <p class="hint">発行要項の該当部分をコピペすると、各フィールドをAIで自動抽出します</p>
+    <textarea id="issuanceText" rows="6" placeholder="発行要項のテキストを貼り付けてください..."></textarea>
+    <button class="btn-dl" onclick="extractIssuanceData()" id="extractBtn" style="margin-top:4px;">AI抽出</button>
+    <div id="extractResult" style="font-size:13px;color:#2a7d2a;margin-bottom:8px;display:none;"></div>
+
+    <hr class="separator">
+
     <div class="row">
       <div>
         <label for="exerciseStart">権利行使期間（開始）</label>
@@ -289,6 +297,66 @@
         el.className = 'company-name';
       }
     });
+
+    // ── 発行要項テキストからAI抽出 ──
+    async function extractIssuanceData() {
+      const btn = document.getElementById('extractBtn');
+      const status = document.getElementById('status');
+      const resultEl = document.getElementById('extractResult');
+      const text = document.getElementById('issuanceText').value.trim();
+      if (!text) {
+        status.className = 'status error';
+        status.textContent = '発行要項テキストを入力してください。';
+        return;
+      }
+      btn.disabled = true;
+      status.className = 'status loading';
+      status.innerHTML = '<span class="spinner"></span>AIで抽出中...';
+      try {
+        const res = await fetch('/api/extract_issuance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || '抽出エラー');
+        }
+        const data = await res.json();
+        const fields = [
+          ['exerciseStart', data.exercise_start],
+          ['exerciseEnd', data.exercise_end],
+          ['assignee', data.assignee],
+          ['resolutionDate', data.resolution_date],
+          ['warrantTotal', data.warrant_total],
+          ['issuableShares', data.issuable_shares],
+          ['specialTerms', data.special_terms],
+        ];
+        let filled = [];
+        for (const [id, val] of fields) {
+          if (val) {
+            document.getElementById(id).value = val;
+            filled.push(id);
+          }
+        }
+        // 総個数→株式数自動計算
+        if (data.warrant_total) {
+          const num = parseInt(data.warrant_total.replace(/,/g, ''));
+          if (!isNaN(num)) {
+            document.getElementById('issuableShares').value = (num * 100).toLocaleString();
+          }
+        }
+        resultEl.textContent = `${filled.length}項目を抽出しました`;
+        resultEl.style.display = 'block';
+        status.className = 'status success';
+        status.textContent = '発行要項から情報を抽出しました。';
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = 'エラー: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
     // ── β値スクリーンショットからAI抽出 ──
     async function extractBeta() {
