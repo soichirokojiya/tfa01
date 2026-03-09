@@ -48,16 +48,26 @@ def fetch_jsda_bond(eval_dt, exercise_end_dt) -> dict:
             data = resp.read()
         wb = xlrd.open_workbook(file_contents=data)
         ws = wb.sheet_by_index(0)
-        # 全長期国債データを収集
+        # 長期国債データを収集（「超長期国債」は除外）
         all_bonds = []
         best = None
         for r in range(1, ws.nrows):
-            name = str(ws.cell_value(r, 2))
-            if "長期国債" not in name:
+            name = str(ws.cell_value(r, 2)).strip()
+            if "長期国債" not in name or "超長期国債" in name:
                 continue
             maturity_str = str(ws.cell_value(r, 3))
-            yield_val = ws.cell_value(r, 11)
-            if not yield_val:
+            coupon = ws.cell_value(r, 4)
+            # 平均値
+            avg_price = ws.cell_value(r, 5)
+            avg_change = ws.cell_value(r, 6)
+            avg_compound = ws.cell_value(r, 7)
+            avg_simple = ws.cell_value(r, 8)
+            # 中央値
+            med_price = ws.cell_value(r, 9)
+            med_change = ws.cell_value(r, 10)
+            med_compound = ws.cell_value(r, 11)
+            med_simple = ws.cell_value(r, 12)
+            if not med_compound:
                 continue
             try:
                 mat_dt = datetime.strptime(maturity_str, "%Y/%m/%d")
@@ -65,14 +75,23 @@ def fetch_jsda_bond(eval_dt, exercise_end_dt) -> dict:
                 continue
             diff = abs((mat_dt - exercise_end_dt).days)
             bond_entry = {
-                "name": name.strip(),
+                "name": name,
                 "maturity": mat_dt,
-                "yield_value": float(yield_val),
+                "coupon": coupon,
+                "avg_price": avg_price,
+                "avg_change": avg_change,
+                "avg_compound": avg_compound,
+                "avg_simple": avg_simple,
+                "med_price": med_price,
+                "med_change": med_change,
+                "med_compound": med_compound,
+                "med_simple": med_simple,
+                "yield_value": float(med_compound),
                 "diff_days": diff,
             }
             all_bonds.append(bond_entry)
             if best is None or diff < best[0]:
-                best = (diff, name.strip(), mat_dt, float(yield_val))
+                best = (diff, name, mat_dt, float(med_compound))
         # 償還日順にソート
         all_bonds.sort(key=lambda x: x["maturity"])
         result["all_bonds"] = all_bonds
@@ -471,97 +490,152 @@ def build_volume_excel(hist_daily, company_name):
 
 
 def build_bond_excel(all_bonds, eval_dt, exercise_end_dt, selected_name):
-    """JSDA長期国債データからリスクフリーレートExcelを生成"""
+    """JSDA長期国債データからリスクフリーレートExcelを生成（JSDAフォーマット準拠）"""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "リスクフリーレート"
+    ws.title = "売買参考統計値（長期国債）"
 
-    title_font = Font(name="ＭＳ Ｐゴシック", size=14, bold=True)
-    header_font = Font(name="ＭＳ Ｐゴシック", size=11, bold=True)
-    data_font = Font(name="ＭＳ Ｐゴシック", size=11)
-    selected_font = Font(name="ＭＳ Ｐゴシック", size=11, bold=True, color="CC0000")
+    title_font = Font(name="ＭＳ Ｐゴシック", size=12, bold=True)
+    header_font = Font(name="ＭＳ Ｐゴシック", size=9, bold=True)
+    data_font = Font(name="ＭＳ Ｐゴシック", size=9)
+    selected_font = Font(name="ＭＳ Ｐゴシック", size=9, bold=True, color="CC0000")
+    info_font = Font(name="ＭＳ Ｐゴシック", size=10)
     header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     selected_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     thin_border = Border(
         left=Side(style="thin"), right=Side(style="thin"),
         top=Side(style="thin"), bottom=Side(style="thin"),
     )
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    right_align = Alignment(horizontal="right")
 
-    ws.merge_cells("A1:E1")
-    ws["A1"] = "リスクフリーレートの選定"
+    # タイトル
+    ws.merge_cells("A1:L1")
+    ws["A1"] = "公社債店頭売買参考統計値（長期国債抜粋）"
     ws["A1"].font = title_font
 
-    ws["A3"] = "データソース"
-    ws["A3"].font = header_font
-    ws["B3"] = "日本証券業協会 売買参考統計値"
-    ws["B3"].font = data_font
+    date_str = f"{eval_dt.year}/{eval_dt.month:02d}/{eval_dt.day:02d}"
+    ws["A2"] = f"基準日: {date_str}　　権利行使期間終了日: {exercise_end_dt.year}/{exercise_end_dt.month:02d}/{exercise_end_dt.day:02d}"
+    ws["A2"].font = info_font
+    ws.merge_cells("A2:L2")
 
-    ws["A4"] = "基準日"
-    ws["A4"].font = header_font
-    ws["B4"] = fmt_date_jp(eval_dt)
-    ws["B4"].font = data_font
+    # ヘッダー行1（カテゴリ）
+    hr = 4
+    ws.merge_cells(f"A{hr}:A{hr+1}")
+    ws[f"A{hr}"] = "銘柄名"
+    ws[f"A{hr}"].font = header_font
+    ws[f"A{hr}"].fill = header_fill
+    ws[f"A{hr}"].border = thin_border
+    ws[f"A{hr}"].alignment = center
 
-    ws["A5"] = "権利行使期間終了日"
-    ws["A5"].font = header_font
-    ws["B5"] = fmt_date_jp(exercise_end_dt)
-    ws["B5"].font = data_font
+    ws.merge_cells(f"B{hr}:B{hr+1}")
+    ws[f"B{hr}"] = "償還期日"
+    ws[f"B{hr}"].font = header_font
+    ws[f"B{hr}"].fill = header_fill
+    ws[f"B{hr}"].border = thin_border
+    ws[f"B{hr}"].alignment = center
 
-    # ヘッダー行
-    headers = [("A", "銘柄名"), ("B", "償還日"), ("C", "利回り(%)"), ("D", "満期差(日)")]
-    for col, label in headers:
-        cell = ws[f"{col}7"]
+    ws.merge_cells(f"C{hr}:C{hr+1}")
+    ws[f"C{hr}"] = "利率"
+    ws[f"C{hr}"].font = header_font
+    ws[f"C{hr}"].fill = header_fill
+    ws[f"C{hr}"].border = thin_border
+    ws[f"C{hr}"].alignment = center
+
+    # 平均値（D-G）
+    ws.merge_cells(f"D{hr}:G{hr}")
+    ws[f"D{hr}"] = "平均値"
+    ws[f"D{hr}"].font = header_font
+    ws[f"D{hr}"].fill = header_fill
+    ws[f"D{hr}"].border = thin_border
+    ws[f"D{hr}"].alignment = center
+
+    # 中央値（H-K）
+    ws.merge_cells(f"H{hr}:K{hr}")
+    ws[f"H{hr}"] = "中央値"
+    ws[f"H{hr}"].font = header_font
+    ws[f"H{hr}"].fill = header_fill
+    ws[f"H{hr}"].border = thin_border
+    ws[f"H{hr}"].alignment = center
+
+    # 満期差（L）
+    ws.merge_cells(f"L{hr}:L{hr+1}")
+    ws[f"L{hr}"] = "満期差\n(日)"
+    ws[f"L{hr}"].font = header_font
+    ws[f"L{hr}"].fill = header_fill
+    ws[f"L{hr}"].border = thin_border
+    ws[f"L{hr}"].alignment = center
+
+    # ヘッダー行2（サブカラム）
+    sub_headers = [
+        ("D", "単価"), ("E", "前日比\n(銭)"), ("F", "複利利回り\n(%)"), ("G", "単利利回り\n(%)"),
+        ("H", "単価"), ("I", "前日比\n(銭)"), ("J", "複利利回り\n(%)"), ("K", "単利利回り\n(%)"),
+    ]
+    for col, label in sub_headers:
+        cell = ws[f"{col}{hr+1}"]
         cell.value = label
         cell.font = header_font
         cell.fill = header_fill
         cell.border = thin_border
-        cell.alignment = Alignment(horizontal="center")
+        cell.alignment = center
 
-    ws.column_dimensions["A"].width = 20
-    ws.column_dimensions["B"].width = 16
-    ws.column_dimensions["C"].width = 14
-    ws.column_dimensions["D"].width = 14
+    # 空セルにもボーダーを付ける
+    for col in ["A", "B", "C", "L"]:
+        ws[f"{col}{hr+1}"].border = thin_border
+        ws[f"{col}{hr+1}"].fill = header_fill
 
+    # カラム幅
+    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 6
+    for col in ["D", "H"]:
+        ws.column_dimensions[col].width = 10
+    for col in ["E", "I"]:
+        ws.column_dimensions[col].width = 8
+    for col in ["F", "G", "J", "K"]:
+        ws.column_dimensions[col].width = 10
+    ws.column_dimensions["L"].width = 8
+
+    # データ行
+    data_start = hr + 2
     for i, bond in enumerate(all_bonds):
-        r = 8 + i
+        r = data_start + i
         is_selected = bond["name"] == selected_name
         font = selected_font if is_selected else data_font
-        fill = selected_fill if is_selected else PatternFill()
+        fill = selected_fill if is_selected else None
 
-        ws[f"A{r}"] = bond["name"]
-        ws[f"A{r}"].font = font
-        ws[f"A{r}"].border = thin_border
-        if is_selected:
-            ws[f"A{r}"].fill = fill
+        def set_cell(col, val, fmt=None):
+            cell = ws[f"{col}{r}"]
+            cell.value = val
+            cell.font = font
+            cell.border = thin_border
+            if fill:
+                cell.fill = fill
+            if fmt:
+                cell.number_format = fmt
 
-        ws[f"B{r}"] = bond["maturity"].strftime("%Y/%m/%d")
-        ws[f"B{r}"].font = font
-        ws[f"B{r}"].border = thin_border
-        if is_selected:
-            ws[f"B{r}"].fill = fill
-
-        ws[f"C{r}"] = bond["yield_value"]
-        ws[f"C{r}"].font = font
-        ws[f"C{r}"].border = thin_border
-        ws[f"C{r}"].number_format = "0.000"
-        if is_selected:
-            ws[f"C{r}"].fill = fill
-
-        ws[f"D{r}"] = bond["diff_days"]
-        ws[f"D{r}"].font = font
-        ws[f"D{r}"].border = thin_border
-        ws[f"D{r}"].number_format = "#,##0"
-        if is_selected:
-            ws[f"D{r}"].fill = fill
+        set_cell("A", bond["name"])
+        set_cell("B", bond["maturity"].strftime("%Y/%m/%d"))
+        set_cell("C", bond.get("coupon", ""), "0.0")
+        set_cell("D", bond.get("avg_price", ""), "0.00")
+        set_cell("E", bond.get("avg_change", ""), "0")
+        set_cell("F", bond.get("avg_compound", ""), "0.000")
+        set_cell("G", bond.get("avg_simple", ""), "0.000")
+        set_cell("H", bond.get("med_price", ""), "0.00")
+        set_cell("I", bond.get("med_change", ""), "0")
+        set_cell("J", bond.get("med_compound", ""), "0.000")
+        set_cell("K", bond.get("med_simple", ""), "0.000")
+        set_cell("L", bond["diff_days"], "#,##0")
 
     # 選定結果
-    end_r = 8 + len(all_bonds) + 1
-    ws[f"A{end_r}"] = "【選定銘柄】"
-    ws[f"A{end_r}"].font = header_font
-    ws[f"A{end_r + 1}"] = "権利行使期間終了日に最も償還日が近い長期国債を選定"
-    ws[f"A{end_r + 1}"].font = data_font
+    end_r = data_start + len(all_bonds) + 1
+    ws.merge_cells(f"A{end_r}:L{end_r}")
+    ws[f"A{end_r}"] = f"【選定】権利行使期間終了日に最も償還日が近い長期国債: {selected_name}（中央値 複利利回り {[b['yield_value'] for b in all_bonds if b['name'] == selected_name][0] if any(b['name'] == selected_name for b in all_bonds) else ''}%）"
+    ws[f"A{end_r}"].font = Font(name="ＭＳ Ｐゴシック", size=10, bold=True, color="CC0000")
 
     buf = io.BytesIO()
     wb.save(buf)
