@@ -215,40 +215,6 @@
 
     <hr class="separator">
 
-    <label>月次株価データ（ボラティリティ計算用）</label>
-    <p class="hint">SPEEDAからエクスポートした月次株価Excel</p>
-    <div class="file-row">
-      <input type="file" id="monthlyFile" accept=".xlsx,.xls,.csv">
-      <button class="btn-dl" onclick="generateVolatilityExcel()" id="volBtn">計算Excel生成</button>
-    </div>
-
-    <label>日次株価・出来高データ（出来高中央値計算用）</label>
-    <p class="hint">SPEEDAからエクスポートした日次株価Excel</p>
-    <div class="file-row">
-      <input type="file" id="dailyFile" accept=".xlsx,.xls,.csv">
-      <button class="btn-dl" onclick="generateVolumeExcel()" id="volMedianBtn">中央値Excel生成</button>
-    </div>
-
-    <label>売買参考統計値（リスクフリーレート用）</label>
-    <p class="hint">日本証券業協会の売買参考統計値 .xls（ファイルから自動抽出、または下欄に直接入力）</p>
-    <div class="file-row">
-      <input type="file" id="bondFile" accept=".xlsx,.xls">
-      <button class="btn-dl" onclick="extractAndFillBond()" id="bondBtn">国債抽出</button>
-    </div>
-    <div id="bondResult" style="font-size:13px;color:#2a7d2a;margin-bottom:8px;display:none;"></div>
-    <div class="row">
-      <div>
-        <label for="bondName">国債銘柄名</label>
-        <input type="text" id="bondName" placeholder="例: 長期国債362">
-      </div>
-      <div>
-        <label for="bondMaturity">償還日</label>
-        <input type="date" id="bondMaturity">
-      </div>
-    </div>
-    <label for="bondYield">利回り（%）</label>
-    <input type="text" id="bondYield" placeholder="例: 1.591">
-
     <label>対指数β</label>
     <p class="hint">スクリーンショットからAI抽出、または直接入力</p>
     <div class="file-row">
@@ -801,41 +767,7 @@
         } catch (e) { console.error('Beta extraction error:', e); }
       }
 
-      // 国債情報: 入力欄の値を優先、空ならファイルから抽出を試行
-      const bondNameInput = document.getElementById('bondName').value.trim();
-      const bondMaturityInput = document.getElementById('bondMaturity').value;
-      const bondYieldInput = document.getElementById('bondYield').value.trim();
-      let bondInfo = null;
-      if (bondNameInput || bondYieldInput) {
-        bondInfo = { name: bondNameInput, maturity: bondMaturityInput, yield_value: bondYieldInput };
-      } else {
-        bondInfo = await extractBondInfo();
-        if (bondInfo) {
-          document.getElementById('bondName').value = bondInfo.name;
-          document.getElementById('bondMaturity').value = bondInfo.maturity;
-          document.getElementById('bondYield').value = bondInfo.yield_value;
-        }
-      }
       const exerciseEnd = document.getElementById('exerciseEnd').value;
-
-      // SPEEDAデータからボラティリティを計算
-      let volData = null;
-      const monthlyInput = document.getElementById('monthlyFile');
-      if (monthlyInput.files.length > 0) {
-        try {
-          const buf = await monthlyInput.files[0].arrayBuffer();
-          volData = computeVolatilityFromSpeeda(buf);
-        } catch (e) { console.error('Volatility calc error:', e); }
-      }
-
-      // SPEEDA日次データから出来高統計を抽出
-      let volumeData = null;
-      const dailyInput = document.getElementById('dailyFile');
-      if (dailyInput.files.length > 0) {
-        try {
-          volumeData = extractVolumeStats(await dailyInput.files[0].arrayBuffer());
-        } catch (e) { console.error('Volume stats error:', e); }
-      }
 
       const payload = {
         ticker_code: ticker,
@@ -851,16 +783,7 @@
         market_risk_premium: document.getElementById('marketRiskPremium').value.trim(),
         default_rate: document.getElementById('defaultRate').value.trim(),
         credit_cost: document.getElementById('creditCost').value.trim(),
-        bond_name: bondInfo ? bondInfo.name : '',
-        bond_maturity: bondInfo ? bondInfo.maturity : '',
-        bond_yield: bondInfo ? bondInfo.yield_value : '',
         beta: document.getElementById('betaValue').value.trim(),
-        volatility: volData ? String(volData.volatility) : '',
-        vol_start_label: volData ? volData.startLabel : '',
-        vol_end_label: volData ? volData.endLabel : '',
-        median_volume: volumeData ? String(volumeData.median) : '',
-        volume_start: volumeData ? volumeData.startDate : '',
-        volume_end: volumeData ? volumeData.endDate : '',
       };
 
       btn.disabled = true;
@@ -887,13 +810,6 @@
         const match = disposition.match(/filename\*=UTF-8''(.+)/);
         if (match) docxFilename = decodeURIComponent(match[1]);
 
-        // Excel Blobを並行生成
-        const [volBlob, volumeBlob, bondBlob] = await Promise.all([
-          buildVolatilityBlob().catch(() => null),
-          buildVolumeBlob().catch(() => null),
-          buildBondBlob().catch(() => null),
-        ]);
-
         // βスクリーンショット
         let betaBlob = null;
         const betaInput = document.getElementById('betaImage');
@@ -901,19 +817,13 @@
           betaBlob = betaInput.files[0];
         }
 
-        // 資料が1つ以上あればZIPにまとめてダウンロード
-        const hasFiles = volBlob || volumeBlob || bondBlob || betaBlob;
-        if (hasFiles) {
+        // β画像があればZIPにまとめてダウンロード
+        if (betaBlob) {
           const zip = new JSZip();
           const cn3 = document.getElementById('companyName').textContent || '';
           const pre = cn3 ? cn3 + '_' : '';
-          if (volBlob) zip.file(pre + 'ボラティリティ計算.xlsx', volBlob);
-          if (volumeBlob) zip.file(pre + '出来高中央値.xlsx', volumeBlob);
-          if (bondBlob) zip.file(pre + '売買参考統計値_ハイライト.xlsx', bondBlob);
-          if (betaBlob) {
-            const ext = betaBlob.name.split('.').pop() || 'png';
-            zip.file(pre + 'β値スクリーンショット.' + ext, betaBlob);
-          }
+          const ext = betaBlob.name.split('.').pop() || 'png';
+          zip.file(pre + 'β値スクリーンショット.' + ext, betaBlob);
           const zipBlob = await zip.generateAsync({ type: 'blob' });
           const companyName = document.getElementById('companyName').textContent || ticker;
           downloadBlob(zipBlob, companyName + '_算定資料.zip');
@@ -923,7 +833,7 @@
         downloadBlob(docxBlob, docxFilename);
 
         status.className = 'status success';
-        status.textContent = docxFilename + (hasFiles ? ' + 算定資料ZIP' : '') + ' をダウンロードしました。';
+        status.textContent = docxFilename + (betaBlob ? ' + 算定資料ZIP' : '') + ' をダウンロードしました。';
       } catch (e) {
         status.className = 'status error';
         status.textContent = 'エラー: ' + e.message;
