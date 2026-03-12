@@ -214,6 +214,57 @@
 
     <hr class="separator">
 
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <label style="margin-bottom:0;font-size:14px;font-weight:700;color:#1a1a2e;">自動取得データ</label>
+      <button class="btn-dl" onclick="fetchPreview()" id="previewBtn" style="margin-top:0;">データ取得</button>
+    </div>
+    <p class="hint" style="margin-bottom:12px;">上場コード・評価基準日・権利行使期間を入力後、「データ取得」を押すと自動取得値が表示されます。値は編集可能です。</p>
+    <div id="previewSection" style="display:none;">
+      <div class="row">
+        <div>
+          <label for="stockPrice">株価（円）</label>
+          <input type="text" id="stockPrice" placeholder="自動取得">
+        </div>
+        <div>
+          <label for="sharesOutstanding">発行済株式総数</label>
+          <input type="text" id="sharesOutstanding" placeholder="自動取得">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="volatility">ボラティリティ（%）</label>
+          <input type="text" id="volatility" placeholder="自動取得">
+        </div>
+        <div>
+          <label for="volPeriod">算出期間</label>
+          <input type="text" id="volPeriod" placeholder="自動取得" readonly style="background:#f5f7fa;">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="medianVolume">日次売買高中央値（株）</label>
+          <input type="text" id="medianVolume" placeholder="自動取得">
+        </div>
+        <div>
+          <label for="liquidityShares">流動性 10%（株）</label>
+          <input type="text" id="liquidityShares" placeholder="自動計算" readonly style="background:#f5f7fa;">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="dividendYield">配当利回り（%）</label>
+          <input type="text" id="dividendYield" placeholder="自動取得">
+        </div>
+        <div>
+          <label for="dividendPerShare">1株配当（円）</label>
+          <input type="text" id="dividendPerShare" placeholder="自動取得">
+        </div>
+      </div>
+    </div>
+    <div id="previewResult" class="status" style="display:none;"></div>
+
+    <hr class="separator">
+
     <label for="marketRiskPremium">市場リスクプレミアム（%）</label>
     <input type="text" id="marketRiskPremium" value="9.3">
 
@@ -256,6 +307,18 @@
     }
     addCommaFormat('warrantTotal');
     addCommaFormat('issuableShares');
+    addCommaFormat('sharesOutstanding');
+    addCommaFormat('medianVolume');
+
+    // 出来高中央値 → 流動性自動計算
+    document.getElementById('medianVolume').addEventListener('input', function() {
+      const raw = this.value.replace(/,/g, '');
+      if (raw && !isNaN(raw)) {
+        const liquidity = Math.ceil(parseInt(raw) * 0.1);
+        const el = document.getElementById('liquidityShares');
+        el.value = liquidity.toLocaleString();
+      }
+    });
 
     // 総個数入力時に株式総数を自動計算（×100）
     document.getElementById('warrantTotal').addEventListener('input', function() {
@@ -319,6 +382,61 @@
     }
     document.getElementById('evalDate').addEventListener('change', updateBetaPeriod);
     document.getElementById('exerciseEnd').addEventListener('change', updateBetaPeriod);
+
+    // ── 自動取得データのプレビュー ──
+    async function fetchPreview() {
+      const ticker = document.getElementById('ticker').value.trim();
+      const evalDate = document.getElementById('evalDate').value;
+      const btn = document.getElementById('previewBtn');
+      const resultEl = document.getElementById('previewResult');
+      if (!ticker || !evalDate) {
+        resultEl.className = 'status error';
+        resultEl.textContent = '上場コードと評価基準日を入力してください。';
+        resultEl.style.display = 'block';
+        return;
+      }
+      btn.disabled = true;
+      resultEl.className = 'status loading';
+      resultEl.innerHTML = '<span class="spinner"></span>株価・ボラティリティ等を取得中...（20秒ほどかかります）';
+      resultEl.style.display = 'block';
+      try {
+        const res = await fetch('/api/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ticker_code: ticker,
+            eval_date: evalDate,
+            exercise_end: document.getElementById('exerciseEnd').value,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'データ取得エラー');
+        }
+        const data = await res.json();
+        document.getElementById('stockPrice').value = data.stock_price;
+        document.getElementById('sharesOutstanding').value = data.shares_outstanding.toLocaleString();
+        document.getElementById('volatility').value = data.volatility;
+        document.getElementById('volPeriod').value = data.vol_start_label + ' - ' + data.vol_end_label;
+        document.getElementById('medianVolume').value = data.median_volume.toLocaleString();
+        document.getElementById('liquidityShares').value = data.liquidity_shares.toLocaleString();
+        document.getElementById('dividendYield').value = data.dividend_yield;
+        document.getElementById('dividendPerShare').value = data.dividend_per_share;
+        document.getElementById('previewSection').style.display = 'block';
+        // 期間ラベルを隠しフィールドに保存
+        document.getElementById('previewSection').dataset.volStart = data.vol_start_label;
+        document.getElementById('previewSection').dataset.volEnd = data.vol_end_label;
+        document.getElementById('previewSection').dataset.volumeStart = data.volume_start;
+        document.getElementById('previewSection').dataset.volumeEnd = data.volume_end;
+        resultEl.className = 'status success';
+        resultEl.textContent = 'データを取得しました。必要に応じて値を編集してください。';
+      } catch (e) {
+        resultEl.className = 'status error';
+        resultEl.textContent = 'エラー: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
 
     // ── 発行要項テキストからAI抽出 ──
     async function extractIssuanceData() {
@@ -890,7 +1008,20 @@
         default_rate: document.getElementById('defaultRate').value.trim(),
         credit_cost: document.getElementById('creditCost').value.trim(),
         beta: document.getElementById('betaValue').value.trim(),
+        // 自動取得データのオーバーライド
+        stock_price: document.getElementById('stockPrice').value.trim(),
+        volatility: document.getElementById('volatility').value.trim(),
+        median_volume: document.getElementById('medianVolume').value.replace(/,/g, '').trim(),
+        dividend_yield: document.getElementById('dividendYield').value.trim(),
+        dividend_per_share: document.getElementById('dividendPerShare').value.trim(),
+        shares_outstanding: document.getElementById('sharesOutstanding').value.replace(/,/g, '').trim(),
       };
+      // ボラティリティ期間ラベル
+      const ps = document.getElementById('previewSection');
+      if (ps.dataset.volStart) payload.vol_start_label = ps.dataset.volStart;
+      if (ps.dataset.volEnd) payload.vol_end_label = ps.dataset.volEnd;
+      if (ps.dataset.volumeStart) payload.volume_start = ps.dataset.volumeStart;
+      if (ps.dataset.volumeEnd) payload.volume_end = ps.dataset.volumeEnd;
 
       btn.disabled = true;
       status.className = 'status loading';

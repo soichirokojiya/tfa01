@@ -819,6 +819,10 @@ class handler(BaseHTTPRequestHandler):
             median_volume_override = body.get("median_volume", "")
             volume_start_override = body.get("volume_start", "")
             volume_end_override = body.get("volume_end", "")
+            stock_price_override = body.get("stock_price", "")
+            dividend_yield_override = body.get("dividend_yield", "")
+            dividend_per_share_override = body.get("dividend_per_share", "")
+            shares_outstanding_override = body.get("shares_outstanding", "")
 
             fair_value_per_share = float(fair_value_str) if fair_value_str else None
 
@@ -841,6 +845,16 @@ class handler(BaseHTTPRequestHandler):
                         bond_yield = jsda["yield_value"]
                 except Exception:
                     pass
+
+            # オーバーライド適用
+            if stock_price_override:
+                data['stock_price'] = int(stock_price_override)
+            if dividend_yield_override:
+                data['dividend_yield'] = float(dividend_yield_override)
+            if dividend_per_share_override:
+                data['dividend_per_share'] = int(float(dividend_per_share_override))
+            if shares_outstanding_override:
+                data['shares_outstanding'] = int(str(shares_outstanding_override).replace(",", ""))
 
             # テンプレート読み込み
             if not os.path.exists(TEMPLATE_PATH):
