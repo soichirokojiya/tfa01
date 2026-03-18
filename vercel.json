@@ -26,6 +26,11 @@
       "config": { "maxDuration": 30 }
     },
     {
+      "src": "api/preview.py",
+      "use": "@vercel/python",
+      "config": { "maxDuration": 30 }
+    },
+    {
       "src": "public/**",
       "use": "@vercel/static"
     }
@@ -36,6 +41,7 @@
     { "src": "/api/volatility", "dest": "/api/volatility.py" },
     { "src": "/api/extract-beta", "dest": "/api/extract_beta.py" },
     { "src": "/api/extract-issuance", "dest": "/api/extract_issuance.py" },
+    { "src": "/api/preview", "dest": "/api/preview.py" },
     {
       "src": "/(.*)",
       "dest": "/public/$1",
