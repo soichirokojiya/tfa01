@@ -149,8 +149,26 @@ def fetch_yahoo_quote_data(ticker_code: str) -> dict:
 # データ取得
 # ──────────────────────────────────────────────
 
-def fetch_japanese_company_name(ticker_code: str) -> str:
-    # 1) Yahoo Finance Japan Webページ
+def _split_company_name(raw: str) -> dict:
+    """社名から {full, core, position} を返す。
+    (株) は 株式会社 に正規化。前株/後株の位置は保持する。"""
+    name = raw.strip()
+    if name.startswith("(株)"):
+        name = "株式会社" + name[len("(株)"):].strip()
+    elif name.endswith("(株)"):
+        name = name[:-len("(株)")].strip() + "株式会社"
+    name = name.strip()
+
+    if name.startswith("株式会社"):
+        return {"full": name, "core": name[len("株式会社"):].strip(), "position": "prefix"}
+    if name.endswith("株式会社"):
+        return {"full": name, "core": name[:-len("株式会社")].strip(), "position": "suffix"}
+    return {"full": name, "core": name, "position": "none"}
+
+
+def fetch_japanese_company_name(ticker_code: str) -> dict:
+    """Yahoo から日本語社名を取得し {full, core, position} を返す。"""
+    raw = ""
     try:
         url = f"https://finance.yahoo.co.jp/quote/{ticker_code}.T"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -158,29 +176,22 @@ def fetch_japanese_company_name(ticker_code: str) -> str:
             html = resp.read().decode("utf-8")
         m = re.search(r"<title>(.*?)【\d+】", html)
         if m:
-            name = m.group(1).strip()
-            name = re.sub(r"^\(株\)", "", name)
-            name = re.sub(r"\(株\)$", "", name)
-            name = re.sub(r"^株式会社", "", name)
-            name = re.sub(r"株式会社$", "", name)
-            return name.strip()
+            raw = m.group(1).strip()
     except Exception:
         pass
 
-    # 2) フォールバック: yfinance API
-    try:
-        ticker = yf.Ticker(f"{ticker_code}.T")
-        info = ticker.info
-        name = info.get("shortName", "") or info.get("longName", "")
-        name = re.sub(r"^\(株\)", "", name)
-        name = re.sub(r"\(株\)$", "", name)
-        name = re.sub(r"^株式会社", "", name)
-        name = re.sub(r"株式会社$", "", name)
-        return name.strip()
-    except Exception:
-        pass
+    if not raw:
+        try:
+            ticker = yf.Ticker(f"{ticker_code}.T")
+            info = ticker.info
+            raw = info.get("shortName", "") or info.get("longName", "")
+        except Exception:
+            pass
 
-    raise ValueError(f"社名を取得できませんでした: {ticker_code}")
+    if not raw:
+        raise ValueError(f"社名を取得できませんでした: {ticker_code}")
+
+    return _split_company_name(raw)
 
 
 def fetch_company_profile(ticker_code: str) -> dict:
@@ -220,6 +231,12 @@ def fetch_stock_data(ticker_code: str, eval_date: str, exercise_end: str = ""):
     else:
         # デフォルト: 5年
         ex_end_dt = eval_dt + relativedelta(years=5)
+
+    if ex_end_dt <= eval_dt:
+        raise ValueError(
+            f"権利行使期間(終了) {ex_end_dt.strftime('%Y-%m-%d')} は "
+            f"評価基準日 {eval_dt.strftime('%Y-%m-%d')} より後の日付にしてください。"
+        )
 
     # 基準日から満期までの月数（ボラティリティ用）
     rd = relativedelta(ex_end_dt, eval_dt)
@@ -826,8 +843,19 @@ class handler(BaseHTTPRequestHandler):
 
             fair_value_per_share = float(fair_value_str) if fair_value_str else None
 
+            # 権利行使期間(終了)の早期バリデーション
+            if exercise_end:
+                _ex_end_check = datetime.strptime(exercise_end, "%Y-%m-%d")
+                if _ex_end_check <= eval_dt:
+                    raise ValueError(
+                        f"権利行使期間(終了) {_ex_end_check.strftime('%Y-%m-%d')} は "
+                        f"評価基準日 {eval_dt.strftime('%Y-%m-%d')} より後の日付にしてください。"
+                    )
+
             # データ取得
-            company_name_jp = fetch_japanese_company_name(ticker_code)
+            company_info = fetch_japanese_company_name(ticker_code)
+            company_full = company_info["full"]          # 例: 株式会社倉元製作所 / トヨタ自動車株式会社
+            company_name_jp = company_info["core"]       # 株式会社を除いた名称 (Excel等の内部表示に使用)
             profile = fetch_company_profile(ticker_code)
             data = fetch_stock_data(ticker_code, eval_date, exercise_end)
 
@@ -891,6 +919,7 @@ class handler(BaseHTTPRequestHandler):
                 replacements.append(("2026年3月4日", fmt_date_jp(ex_end_dt)))
 
             replacements += [
+                ("株式会社ジェリービーンズグループ", company_full),
                 ("ジェリービーンズグループ", company_name_jp),
                 ("3070", ticker_code),
                 ("110円", f"{data['stock_price']:,}円"),
@@ -1060,7 +1089,7 @@ class handler(BaseHTTPRequestHandler):
             os.unlink(tmp_path)
 
             eval_ym = eval_dt.strftime("%Y%m")
-            docx_filename = f"{eval_ym}_新株予約権評価報告書_株式会社{company_name_jp}.docx"
+            docx_filename = f"{eval_ym}_新株予約権評価報告書_{company_full}.docx"
 
             # ボラティリティ・出来高・国債のExcelを生成
             vol_excel = build_volatility_excel(data["hist_monthly"], company_name_jp)
@@ -1082,7 +1111,7 @@ class handler(BaseHTTPRequestHandler):
                     zf.writestr(f"{company_name_jp}_算定期間.xlsx", period_excel)
             zip_bytes = zip_buf.getvalue()
 
-            zip_filename = f"{eval_ym}_株式会社{company_name_jp}_算定資料.zip"
+            zip_filename = f"{eval_ym}_{company_full}_算定資料.zip"
 
             self.send_response(200)
             self.send_header("Content-Type", "application/zip")

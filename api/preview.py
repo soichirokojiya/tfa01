@@ -17,6 +17,44 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
+def fetch_jsda_bond(eval_dt, exercise_end_dt) -> dict:
+    """JSDA売買参考統計値から、権利行使期間終了日に最も近い長期国債(超長期除く)を返す。"""
+    result = {"name": "", "maturity": "", "yield_value": ""}
+    try:
+        import xlrd
+        yy = eval_dt.year % 100
+        fname = f"S{yy:02d}{eval_dt.month:02d}{eval_dt.day:02d}"
+        url = f"https://market.jsda.or.jp/shijyo/saiken/baibai/baisanchi/files/{eval_dt.year}/{fname}.xls"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+        wb = xlrd.open_workbook(file_contents=data)
+        ws = wb.sheet_by_index(0)
+        best = None
+        for r in range(1, ws.nrows):
+            name = str(ws.cell_value(r, 2)).strip()
+            if "長期国債" not in name or "超長期国債" in name:
+                continue
+            maturity_str = str(ws.cell_value(r, 3))
+            med_compound = ws.cell_value(r, 11)
+            if not med_compound:
+                continue
+            try:
+                mat_dt = datetime.strptime(maturity_str, "%Y/%m/%d")
+            except (ValueError, TypeError):
+                continue
+            diff = abs((mat_dt - exercise_end_dt).days)
+            if best is None or diff < best[0]:
+                best = (diff, name, mat_dt, float(med_compound))
+        if best:
+            result["name"] = best[1]
+            result["maturity"] = best[2].strftime("%Y-%m-%d")
+            result["yield_value"] = str(best[3])
+    except Exception:
+        pass
+    return result
+
+
 def fetch_yahoo_quote_data(ticker_code: str) -> dict:
     result = {"shares_outstanding": 0, "dividend_per_share": 0, "dividend_yield": 0.0}
     try:
@@ -70,6 +108,11 @@ class handler(BaseHTTPRequestHandler):
             else:
                 ex_end_dt = eval_dt + relativedelta(years=5)
 
+            if ex_end_dt <= eval_dt:
+                raise ValueError(
+                    f"権利行使期間(終了) {ex_end_dt.strftime('%Y-%m-%d')} は "
+                    f"評価基準日 {eval_dt.strftime('%Y-%m-%d')} より後の日付にしてください。"
+                )
             rd = relativedelta(ex_end_dt, eval_dt)
             months_to_maturity = rd.years * 12 + rd.months
             if rd.days > 0:
@@ -83,7 +126,10 @@ class handler(BaseHTTPRequestHandler):
             hist_before = hist_around[hist_around.index.strftime("%Y-%m-%d") <= eval_date]
             if len(hist_before) == 0:
                 raise ValueError(f"評価基準日 {eval_date} の株価データが取得できません")
-            stock_price = int(hist_before["Close"].iloc[-1])
+            close_val = hist_before["Close"].iloc[-1]
+            if close_val is None or (isinstance(close_val, float) and math.isnan(close_val)):
+                raise ValueError(f"評価基準日 {eval_date} の終値が NaN です（銘柄 {ticker_code}）")
+            stock_price = int(close_val)
 
             # ボラティリティ
             vol_end_month = eval_dt.replace(day=1) - timedelta(days=1)
@@ -103,11 +149,22 @@ class handler(BaseHTTPRequestHandler):
                 start=volume_start.strftime("%Y-%m-%d"),
                 end=(volume_end + timedelta(days=1)).strftime("%Y-%m-%d"),
             )
-            median_volume = int(hist_daily["Volume"].median())
+            if "Volume" not in hist_daily or len(hist_daily["Volume"].dropna()) == 0:
+                raise ValueError(
+                    f"出来高データが取得できません（銘柄 {ticker_code}, 期間 "
+                    f"{volume_start.strftime('%Y-%m-%d')}〜{volume_end.strftime('%Y-%m-%d')}）"
+                )
+            median_raw = hist_daily["Volume"].median()
+            if median_raw is None or (isinstance(median_raw, float) and math.isnan(median_raw)):
+                raise ValueError(f"出来高中央値が NaN です（銘柄 {ticker_code}）")
+            median_volume = int(median_raw)
             liquidity_shares = math.ceil(median_volume * 0.1)
 
             # 配当・発行済株式数
             yahoo_data = fetch_yahoo_quote_data(ticker_code)
+
+            # リスクフリーレート (JSDA 長期国債、権利行使期間終了日に最も近い銘柄)
+            jsda = fetch_jsda_bond(eval_dt, ex_end_dt) if exercise_end else {"name": "", "maturity": "", "yield_value": ""}
 
             result = {
                 "stock_price": stock_price,
@@ -121,6 +178,9 @@ class handler(BaseHTTPRequestHandler):
                 "dividend_yield": yahoo_data["dividend_yield"],
                 "dividend_per_share": yahoo_data["dividend_per_share"],
                 "shares_outstanding": yahoo_data["shares_outstanding"],
+                "bond_name": jsda["name"],
+                "bond_maturity": jsda["maturity"],
+                "bond_yield": jsda["yield_value"],
             }
 
             self.send_response(200)

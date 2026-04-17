@@ -260,6 +260,18 @@
           <input type="text" id="dividendPerShare" placeholder="自動取得">
         </div>
       </div>
+      <div class="row">
+        <div>
+          <label for="bondYield">リスクフリーレート（%）</label>
+          <input type="text" id="bondYield" placeholder="自動取得">
+        </div>
+        <div>
+          <label for="bondInfo">長期国債・償還日</label>
+          <input type="text" id="bondInfo" placeholder="権利行使期間終了日が必要" readonly style="background:#f5f7fa;">
+        </div>
+      </div>
+      <input type="hidden" id="bondName">
+      <input type="hidden" id="bondMaturity">
     </div>
     <div id="previewResult" class="status" style="display:none;"></div>
 
@@ -422,6 +434,13 @@
         document.getElementById('liquidityShares').value = data.liquidity_shares.toLocaleString();
         document.getElementById('dividendYield').value = data.dividend_yield;
         document.getElementById('dividendPerShare').value = data.dividend_per_share;
+        // リスクフリーレート
+        document.getElementById('bondYield').value = data.bond_yield || '';
+        document.getElementById('bondName').value = data.bond_name || '';
+        document.getElementById('bondMaturity').value = data.bond_maturity || '';
+        document.getElementById('bondInfo').value = data.bond_name
+          ? `${data.bond_name}（償還 ${data.bond_maturity}）`
+          : '';
         document.getElementById('previewSection').style.display = 'block';
         // 期間ラベルを隠しフィールドに保存
         document.getElementById('previewSection').dataset.volStart = data.vol_start_label;
@@ -1015,6 +1034,9 @@
         dividend_yield: document.getElementById('dividendYield').value.trim(),
         dividend_per_share: document.getElementById('dividendPerShare').value.trim(),
         shares_outstanding: document.getElementById('sharesOutstanding').value.replace(/,/g, '').trim(),
+        bond_name: document.getElementById('bondName').value.trim(),
+        bond_maturity: document.getElementById('bondMaturity').value.trim(),
+        bond_yield: document.getElementById('bondYield').value.trim(),
       };
       // ボラティリティ期間ラベル
       const ps = document.getElementById('previewSection');
