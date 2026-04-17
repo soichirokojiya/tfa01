@@ -131,9 +131,9 @@ class handler(BaseHTTPRequestHandler):
                 raise ValueError(f"評価基準日 {eval_date} の終値が NaN です（銘柄 {ticker_code}）")
             stock_price = int(close_val)
 
-            # ボラティリティ
+            # ボラティリティ: 基準日の前月末から (月数+1) 本の月次株価を取得
             vol_end_month = eval_dt.replace(day=1) - timedelta(days=1)
-            vol_start_month = vol_end_month - relativedelta(months=months_to_maturity - 1)
+            vol_start_month = vol_end_month - relativedelta(months=months_to_maturity)
             vol_start = vol_start_month.replace(day=1).strftime("%Y-%m-%d")
             vol_end = (vol_end_month + timedelta(days=1)).strftime("%Y-%m-%d")
             hist_monthly = ticker.history(start=vol_start, end=vol_end, interval="1mo")

@@ -255,9 +255,10 @@ def fetch_stock_data(ticker_code: str, eval_date: str, exercise_end: str = ""):
         raise ValueError(f"評価基準日 {eval_date} の株価データが取得できません")
     stock_price = int(hist_before["Close"].iloc[-1])
 
-    # ボラティリティ: 基準日の前月から months_to_maturity ヶ月遡る
+    # ボラティリティ: 基準日の前月末から (月数+1) 本の月次株価を取得
+    # 例: 月数=60 → 月次株価 61 本 → 対数収益率 60 本
     vol_end_month = eval_dt.replace(day=1) - timedelta(days=1)  # 前月末
-    vol_start_month = vol_end_month - relativedelta(months=months_to_maturity - 1)
+    vol_start_month = vol_end_month - relativedelta(months=months_to_maturity)
     vol_start = vol_start_month.replace(day=1).strftime("%Y-%m-%d")
     vol_end = (vol_end_month + timedelta(days=1)).strftime("%Y-%m-%d")
     hist_monthly = ticker.history(start=vol_start, end=vol_end, interval="1mo")
