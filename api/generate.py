@@ -221,7 +221,7 @@ def fetch_company_profile(ticker_code: str) -> dict:
     return profile
 
 
-def fetch_stock_data(ticker_code: str, eval_date: str, exercise_end: str = "", exercise_start: str = ""):
+def fetch_stock_data(ticker_code: str, eval_date: str, exercise_end: str = ""):
     ticker = yf.Ticker(f"{ticker_code}.T")
     eval_dt = datetime.strptime(eval_date, "%Y-%m-%d")
 
@@ -232,23 +232,20 @@ def fetch_stock_data(ticker_code: str, eval_date: str, exercise_end: str = "", e
         # デフォルト: 5年
         ex_end_dt = eval_dt + relativedelta(years=5)
 
-    # 行使期間の開始日（未指定なら基準日を代用）
-    ex_start_dt = datetime.strptime(exercise_start, "%Y-%m-%d") if exercise_start else eval_dt
-
     if ex_end_dt <= eval_dt:
         raise ValueError(
             f"権利行使期間(終了) {ex_end_dt.strftime('%Y-%m-%d')} は "
             f"評価基準日 {eval_dt.strftime('%Y-%m-%d')} より後の日付にしてください。"
         )
 
-    # 行使期間の月数（ボラティリティ用）: exercise_end - exercise_start
-    rd = relativedelta(ex_end_dt, ex_start_dt)
+    # 基準日から満期までの月数（ボラティリティ用）
+    rd = relativedelta(ex_end_dt, eval_dt)
     months_to_maturity = rd.years * 12 + rd.months
     if rd.days > 0:
         months_to_maturity += 1  # 端数月は切り上げ
 
-    # 行使期間の日数（出来高・β用）
-    days_to_maturity = (ex_end_dt - ex_start_dt).days
+    # 基準日から満期までの日数（出来高用）
+    days_to_maturity = (ex_end_dt - eval_dt).days
 
     start = (eval_dt - timedelta(days=10)).strftime("%Y-%m-%d")
     end = (eval_dt + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -701,8 +698,8 @@ def build_period_excel(eval_dt, ex_end_dt, data):
     items = [
         ("算定基準日", fmt_date_jp(eval_dt)),
         ("権利行使期間満期", fmt_date_jp(ex_end_dt)),
-        ("行使期間の日数", f"{data['days_to_maturity']}日"),
-        ("行使期間の月数", f"{data['months_to_maturity']}ヶ月"),
+        ("基準日から満期までの日数", f"{data['days_to_maturity']}日"),
+        ("基準日から満期までの月数", f"{data['months_to_maturity']}ヶ月"),
     ]
     for label, value in items:
         ws[f"A{r}"] = label
@@ -751,10 +748,10 @@ def build_period_excel(eval_dt, ex_end_dt, data):
             ws[f"{col}{r}"].border = thin_border
 
     r += 2
-    ws[f"A{r}"] = "※ ボラティリティ: 基準日の前月から行使期間の月数分を遡った月次データ"
+    ws[f"A{r}"] = "※ ボラティリティ: 基準日の前月から満期月数分を遡った月次データ"
     ws[f"A{r}"].font = Font(name="ＭＳ Ｐゴシック", size=9, color="666666")
     r += 1
-    ws[f"A{r}"] = "※ 出来高・β値: 基準日から行使期間の日数分を遡った日次データ"
+    ws[f"A{r}"] = "※ 出来高・β値: 基準日から満期日数分を遡った日次データ"
     ws[f"A{r}"].font = Font(name="ＭＳ Ｐゴシック", size=9, color="666666")
 
     buf = io.BytesIO()
@@ -861,7 +858,7 @@ class handler(BaseHTTPRequestHandler):
             company_full = company_info["full"]          # 例: 株式会社倉元製作所 / トヨタ自動車株式会社
             company_name_jp = company_info["core"]       # 株式会社を除いた名称 (Excel等の内部表示に使用)
             profile = fetch_company_profile(ticker_code)
-            data = fetch_stock_data(ticker_code, eval_date, exercise_end, exercise_start)
+            data = fetch_stock_data(ticker_code, eval_date, exercise_end)
 
             # 国債データ自動取得
             jsda_all_bonds = []
