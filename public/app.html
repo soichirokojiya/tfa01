@@ -377,14 +377,17 @@
     });
 
     // ── β取得期間の自動計算 ──
+    // 変数取得期間は「行使期間の長さ」= exerciseEnd - exerciseStart を基準日から遡って算出
     function updateBetaPeriod() {
       const evalDate = document.getElementById('evalDate').value;
+      const exStart = document.getElementById('exerciseStart').value;
       const exEnd = document.getElementById('exerciseEnd').value;
       const el = document.getElementById('betaPeriod');
-      if (!evalDate || !exEnd) { el.style.display = 'none'; return; }
+      if (!evalDate || !exStart || !exEnd) { el.style.display = 'none'; return; }
       const eval_dt = new Date(evalDate);
+      const start_ref = new Date(exStart);
       const end_dt = new Date(exEnd);
-      const diffDays = Math.round((end_dt - eval_dt) / (1000 * 60 * 60 * 24));
+      const diffDays = Math.round((end_dt - start_ref) / (1000 * 60 * 60 * 24));
       if (diffDays <= 0) { el.style.display = 'none'; return; }
       const start_dt = new Date(eval_dt);
       start_dt.setDate(start_dt.getDate() - diffDays);
@@ -393,6 +396,7 @@
       el.style.display = 'block';
     }
     document.getElementById('evalDate').addEventListener('change', updateBetaPeriod);
+    document.getElementById('exerciseStart').addEventListener('change', updateBetaPeriod);
     document.getElementById('exerciseEnd').addEventListener('change', updateBetaPeriod);
 
     // ── 自動取得データのプレビュー ──
@@ -418,6 +422,7 @@
           body: JSON.stringify({
             ticker_code: ticker,
             eval_date: evalDate,
+            exercise_start: document.getElementById('exerciseStart').value,
             exercise_end: document.getElementById('exerciseEnd').value,
           }),
         });

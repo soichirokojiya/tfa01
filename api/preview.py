@@ -98,6 +98,7 @@ class handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(content_length))
             ticker_code = body["ticker_code"]
             eval_date = body["eval_date"]
+            exercise_start = body.get("exercise_start", "")
             exercise_end = body.get("exercise_end", "")
 
             eval_dt = datetime.strptime(eval_date, "%Y-%m-%d")
@@ -108,16 +109,20 @@ class handler(BaseHTTPRequestHandler):
             else:
                 ex_end_dt = eval_dt + relativedelta(years=5)
 
+            # 行使期間の開始日（未指定なら基準日を代用）
+            ex_start_dt = datetime.strptime(exercise_start, "%Y-%m-%d") if exercise_start else eval_dt
+
             if ex_end_dt <= eval_dt:
                 raise ValueError(
                     f"権利行使期間(終了) {ex_end_dt.strftime('%Y-%m-%d')} は "
                     f"評価基準日 {eval_dt.strftime('%Y-%m-%d')} より後の日付にしてください。"
                 )
-            rd = relativedelta(ex_end_dt, eval_dt)
+            # 行使期間の長さで変数取得期間を決める
+            rd = relativedelta(ex_end_dt, ex_start_dt)
             months_to_maturity = rd.years * 12 + rd.months
             if rd.days > 0:
                 months_to_maturity += 1
-            days_to_maturity = (ex_end_dt - eval_dt).days
+            days_to_maturity = (ex_end_dt - ex_start_dt).days
 
             # 株価
             start = (eval_dt - timedelta(days=10)).strftime("%Y-%m-%d")
